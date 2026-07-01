@@ -8,15 +8,21 @@ Sports streaming frontend hosted on Netlify. Pulls match data from streamed.pk's
 
 **What it is:** a static, no-build single-page app — two HTML files (`index.html` = match browser, `multiview.html` = 1–6 stream grid) with all CSS/JS inline, plus three Netlify Functions in `netlify/functions/` that proxy external APIs. There is **no framework, no bundler, no `package.json`** — you edit the HTML files directly.
 
-**Where it lives:** production is **`pablogames.netlify.app`**. The working directory is **not a git repo** — it's a plain folder, deployed by **drag-and-drop into Netlify** (drag the whole folder). A `… - BACKUP/` sibling folder on the Desktop is a manual snapshot of an earlier version; there's no version control history to diff against.
+**Where it lives:** production is **`pablogames.netlify.app`**. The working directory **is now a git repo** tracking [`Pablomx2/streamwatch`](https://github.com/Pablomx2/streamwatch) on `origin/main` — develop here, commit, and `git push origin main` as normal. A `… - BACKUP/` sibling folder on the Desktop is a manual snapshot of an earlier (pre-git) version.
+
+**Two deploys, not one — they don't auto-sync with each other:**
+- **GitHub Pages** (`https://pablomx2.github.io/streamwatch/`) auto-rebuilds on every push to `main`. This is the fastest way to see a change live and needs no manual step.
+- **Netlify** (`pablogames.netlify.app`, the primary/production site) is **still manual drag-and-drop** — it is not connected to the GitHub repo. Pushing to git does **not** update it; after pushing, also drag the whole folder onto the Netlify dashboard if you want production to pick up the change.
 
 **Run it locally:**
 ```bash
 netlify dev            # serves the HTML AND the /api/* functions (needed for live scores)
 ```
-A plain static server (e.g. `python3 -m http.server`) is enough to see the UI and play streams (on `localhost` the match-data API hits streamed.pk directly), **but `/api/scores/*` is a function** — without `netlify dev` it 404s and the app silently falls back to the time-based live heuristic.
+A plain static server (e.g. `python3 -m http.server`) is enough to see the UI and play streams (on `localhost` the match-data API hits streamed.pk directly), **but `/api/scores/*` is a function** — without `netlify dev` it 404s. On `localhost` this just falls back to the time-based heuristic (like Netlify without `dev`); on the GitHub Pages mirror it instead calls ESPN directly — see *Local Development* below.
 
-**Deploy:** drag the whole folder onto the Netlify dashboard. `netlify.toml` wires the `/api/*` redirects to the functions. **Always verify on the bare `pablogames.netlify.app`**, never a `<hash>--pablogames.netlify.app` preview (those are frozen snapshots).
+**Deploy:**
+- **GitHub Pages:** `git push origin main` — that's it, Pages rebuilds itself.
+- **Netlify:** drag the whole folder onto the Netlify dashboard. `netlify.toml` wires the `/api/*` redirects to the functions. **Always verify on the bare `pablogames.netlify.app`**, never a `<hash>--pablogames.netlify.app` preview (those are frozen snapshots).
 
 **Verifying changes in this sandbox:** the preview/dev server may be blocked by the sandbox (Python's `http.server` hits a `PermissionError`). When you can't run a browser, the static fallbacks are: `grep` for any leftover references to identifiers you removed, and syntax-check the inline script with JavaScriptCore — `jsc /tmp/extracted.js`; a `SyntaxError` means broken JS, a `ReferenceError: window` means it parsed fine and started running.
 
@@ -127,13 +133,13 @@ either one — the league list and event shape must match.
 
 Embeds point straight at `https://embed.st/embed/...`, so the player works in local dev too (only the match-data API needs the Netlify proxy in production).
 
-**A read-only mirror of this app is also published via GitHub Pages** at
-`Pablomx2/streamwatch` → `https://pablomx2.github.io/streamwatch/`. It's a
-straight copy of `index.html`/`multiview.html`/`netlify/`, kept in sync manually
-(no CI) — match browsing, streaming, and ESPN scores all work there via the
-direct-to-source calls above (streamed.pk and ESPN both allow CORS from any
-origin). **`pablogames.netlify.app` remains the primary/production site**; the
-GitHub Pages copy is a secondary mirror.
+**This repo is also published live via GitHub Pages** at
+`Pablomx2/streamwatch` → `https://pablomx2.github.io/streamwatch/`, auto-rebuilt
+by GitHub on every push to `main` — match browsing, streaming, and ESPN scores
+all work there via the direct-to-source calls above (streamed.pk and ESPN both
+allow CORS from any origin). **`pablogames.netlify.app` remains the
+primary/production site**, but it is a *separate, manually-deployed* copy — a
+`git push` updates GitHub Pages only, not Netlify; see *Deploy* in Quick Start.
 
 Run locally with Netlify CLI:
 ```bash
@@ -291,7 +297,10 @@ Source switcher is in the top bar (not bottom) to avoid colliding with the playe
 
 ## Deployment
 
-Push all files to the repo connected to `pablogames.netlify.app`. Netlify auto-deploys on push. The `netlify.toml` handles routing:
+Two independent deploys, both sourced from this same working directory — **pushing to git only updates GitHub Pages, not Netlify**:
+
+1. **GitHub Pages** (`https://pablomx2.github.io/streamwatch/`) — `git push origin main` and GitHub rebuilds it automatically. No functions run here; the frontend calls streamed.pk/ESPN directly (see *Local Development*).
+2. **Netlify** (`pablogames.netlify.app`, **primary/production**) — still manual: drag the whole folder onto the Netlify dashboard after your changes are ready. `netlify.toml` wires the `/api/*` redirects to the functions, which only run on Netlify:
 
 ```toml
 [[redirects]]
@@ -308,9 +317,9 @@ Push all files to the repo connected to `pablogames.netlify.app`. Netlify auto-d
   status = 200, force = true
 ```
 
-> **Local dev:** match data works on a bare static server (it hits streamed.pk directly on `localhost`), but **scores need `netlify dev`** — `/api/scores/*` is a function, so a plain file server returns 404 there and the app silently falls back to the time heuristic.
+> **Local dev:** match data works on a bare static server (it hits streamed.pk directly on `localhost`), but **scores need `netlify dev`** — `/api/scores/*` is a function, so a plain file server returns 404 there. On `localhost` that just falls back to the time heuristic; it's only the GitHub Pages mirror that instead calls ESPN directly (see *Local Development*).
 
-> Drag-and-drop deploys: drag the **whole `outputs/` folder**. Functions deploy via the `[functions]` dir in `netlify.toml`. Always verify on the bare domain `pablogames.netlify.app` — never a `<hash>--pablogames.netlify.app` preview (those are frozen snapshots of a single drop).
+> Drag-and-drop deploys: drag the **whole folder**. Functions deploy via the `[functions]` dir in `netlify.toml`. Always verify on the bare domain `pablogames.netlify.app` — never a `<hash>--pablogames.netlify.app` preview (those are frozen snapshots of a single drop).
 
 ---
 
@@ -331,3 +340,4 @@ Push all files to the repo connected to `pablogames.netlify.app`. Netlify auto-d
 - [ ] Picture-in-picture per cell — note: blocked for cross-origin iframes (can't reach the inner `<video>`)
 - [ ] ~~Dark/light mode toggle~~ — considered, intentionally dropped (app stays dark-only)
 - [ ] Service worker for offline caching of match list
+- [x] ~~Move development into git (`Pablomx2/streamwatch`) and publish a GitHub Pages mirror~~ — working directory now tracks `origin/main`; GitHub Pages auto-deploys on push, Netlify stays manual drag-and-drop (see *Deployment*)
