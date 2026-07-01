@@ -720,15 +720,26 @@
     ? '/api/stream'
     : 'https://streamed.pk/api/stream';
 
-  // ESPN live-scores proxy (aggregates per-league scoreboards server-side). Only
-  // exists as a Netlify function — no direct browser equivalent, so non-Netlify
-  // hosts (localhost without `netlify dev`, GitHub Pages, etc.) just keep the heuristic.
-  const SCORES_BASE = usesNetlifyProxy ? '/api/scores' : null;
+  // ESPN live-scores proxy — aggregates per-league scoreboards server-side. Used
+  // on the Netlify deploy; non-Netlify hosts fetch ESPN directly instead (ESPN's
+  // API also sends Access-Control-Allow-Origin: *), see fetchScoreEvents() below.
+  const SCORES_BASE = '/api/scores';
   // Categories ESPN covers (team-vs-team leagues). Matches scores.js ESPN_LEAGUES;
   // others get no score and stay on the time heuristic.
   const SCORE_CATEGORIES = new Set([
     'basketball', 'american-football', 'hockey', 'baseball', 'football',
   ]);
+  // streamed.pk category → ESPN scoreboard paths, mirrors ESPN_LEAGUES in
+  // netlify/functions/scores.js — used to fetch ESPN directly (no-proxy hosts).
+  const ESPN_LEAGUES = {
+    basketball:          ['basketball/nba', 'basketball/wnba'],
+    'american-football': ['football/nfl', 'football/college-football'],
+    hockey:              ['hockey/nhl'],
+    baseball:            ['baseball/mlb'],
+    football:            ['soccer/eng.1', 'soccer/esp.1', 'soccer/ita.1', 'soccer/ger.1',
+                          'soccer/fra.1', 'soccer/usa.1', 'soccer/uefa.champions', 'soccer/uefa.europa',
+                          'soccer/fifa.world', 'soccer/uefa.euro', 'soccer/conmebol.copa_america'],
+  };
   // Normalize a team name for fuzzy matching across providers.
   const normTeam = s => (s || '').toLowerCase().normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -1413,21 +1424,64 @@
     return null;
   }
 
+  // Flattens one raw ESPN scoreboard payload into our compact record shape —
+  // mirrors normalize() in netlify/functions/scores.js, duplicated here for the
+  // no-proxy (direct ESPN) path below.
+  function normalizeEspn(payload) {
+    const events = Array.isArray(payload?.events) ? payload.events : [];
+    const team = t => ({ name: t?.displayName || '', short: t?.shortDisplayName || '', abbr: t?.abbreviation || '' });
+    const out = [];
+    for (const ev of events) {
+      const competitors = ev?.competitions?.[0]?.competitors || [];
+      const home = competitors.find(c => c.homeAway === 'home');
+      const away = competitors.find(c => c.homeAway === 'away');
+      if (!home || !away) continue;
+      const type = ev?.status?.type || {};
+      out.push({
+        date: Date.parse(ev.date) || 0,
+        home: team(home.team),
+        away: team(away.team),
+        homeScore: Number(home.score),
+        awayScore: Number(away.score),
+        state: type.state || 'pre',
+        completed: !!type.completed,
+        detail: type.shortDetail || '',
+      });
+    }
+    return out;
+  }
+
+  // Gets ESPN events for one streamed.pk category: via the Netlify proxy in
+  // production, or straight from ESPN's scoreboard API elsewhere (ESPN also
+  // sends Access-Control-Allow-Origin: *, so the browser can call it directly).
+  async function fetchScoreEvents(category) {
+    if (usesNetlifyProxy) {
+      try {
+        const res = await fetch(`${SCORES_BASE}/${category}`);
+        if (!res.ok) return [];
+        const data = await res.json();
+        return Array.isArray(data?.events) ? data.events : [];
+      } catch { return []; }
+    }
+    const leagues = ESPN_LEAGUES[category];
+    if (!leagues) return [];
+    const payloads = await Promise.all(leagues.map(async path => {
+      try {
+        const res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/${path}/scoreboard`);
+        if (!res.ok) return null;
+        return await res.json();
+      } catch { return null; }
+    }));
+    return payloads.flatMap(p => p ? normalizeEspn(p) : []);
+  }
+
   // Pull ESPN scoreboards for the covered categories currently on the grid and match
   // them to our matches. Rebuilds scoreByMatch; unmatched matches keep the heuristic.
   async function refreshScores() {
-    if (!SCORES_BASE) { scoreByMatch = {}; return; }
     const cats = [...new Set(allMatches.map(m => m.category))].filter(c => SCORE_CATEGORIES.has(c));
     if (!cats.length) { scoreByMatch = {}; return; }
     try {
-      const lists = await Promise.all(cats.map(async c => {
-        try {
-          const res = await fetch(`${SCORES_BASE}/${c}`);
-          if (!res.ok) return [];
-          const data = await res.json();
-          return Array.isArray(data?.events) ? data.events : [];
-        } catch { return []; }
-      }));
+      const lists = await Promise.all(cats.map(c => fetchScoreEvents(c)));
       const byCat = {};
       cats.forEach((c, i) => { byCat[c] = lists[i]; });
       const next = {};
