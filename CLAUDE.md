@@ -117,18 +117,23 @@ const API = usesNetlifyProxy
   ? '/api/matches/all'                      // use Netlify proxy in production
   : 'https://streamed.pk/api/matches/all';  // hit streamed.pk directly elsewhere
 ```
-`/api/scores` (ESPN live scores) has no direct-browser equivalent and stays
-Netlify-only — non-Netlify hosts just keep the time-based heuristic (`SCORES_BASE = null`).
+`/api/scores` (ESPN live scores) is a Netlify function on the Netlify deploy, but
+non-Netlify hosts don't just fall back to the heuristic — `fetchScoreEvents()` in
+index.html fetches ESPN's own scoreboard API directly instead (`site.api.espn.com`
+also sends `Access-Control-Allow-Origin: *`), running the same league mapping
+(`ESPN_LEAGUES`) and normalization (`normalizeEspn`) client-side that
+`netlify/functions/scores.js` runs server-side. Keep the two in sync if you edit
+either one — the league list and event shape must match.
 
 Embeds point straight at `https://embed.st/embed/...`, so the player works in local dev too (only the match-data API needs the Netlify proxy in production).
 
 **A read-only mirror of this app is also published via GitHub Pages** at
-`Pablomx2/tcstillspeeding` → `https://pablomx2.github.io/tcstillspeeding/`. It's a
+`Pablomx2/streamwatch` → `https://pablomx2.github.io/streamwatch/`. It's a
 straight copy of `index.html`/`multiview.html`/`netlify/`, kept in sync manually
-(no CI) — it has no functions, so ESPN scores fall back to the heuristic there,
-but match browsing and streaming work via the direct streamed.pk calls above.
-**`pablogames.netlify.app` remains the primary/production site**; the GitHub
-Pages copy is a secondary mirror.
+(no CI) — match browsing, streaming, and ESPN scores all work there via the
+direct-to-source calls above (streamed.pk and ESPN both allow CORS from any
+origin). **`pablogames.netlify.app` remains the primary/production site**; the
+GitHub Pages copy is a secondary mirror.
 
 Run locally with Netlify CLI:
 ```bash
