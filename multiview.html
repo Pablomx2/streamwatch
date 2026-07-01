@@ -1,0 +1,1030 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StreamWatch — Multiview</title>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body { background: #000; color: #fff; height: 100%; overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+
+    /* ── Top bar ── */
+    .topbar {
+      position: fixed; top: 0; left: 0; right: 0; height: 50px;
+      background: rgba(10,10,10,0.97); border-bottom: 1px solid #1e1e1e;
+      display: flex; align-items: center; padding: 0 14px; gap: 8px;
+      z-index: 100; backdrop-filter: blur(10px);
+      transition: transform 0.3s ease, opacity 0.3s ease;
+    }
+    .topbar.hidden { transform: translateY(-100%); opacity: 0; pointer-events: none; }
+
+    .tb-logo { font-size: 15px; font-weight: 800; color: #e63946;
+      text-decoration: none; white-space: nowrap; margin-right: 4px; }
+
+    /* Divider */
+    .tb-div { width: 1px; height: 20px; background: #222; flex-shrink: 0; }
+
+    /* ── Master Control section ── */
+    .master-ctrl { display: flex; align-items: center; gap: 6px; flex: 1; }
+
+    .mc-label {
+      font-size: 10px; font-weight: 700; color: #444;
+      text-transform: uppercase; letter-spacing: 0.8px; white-space: nowrap;
+      margin-right: 2px;
+    }
+
+    .mc-btn {
+      background: #1a1a1a; border: 1px solid #2a2a2a; color: #888;
+      padding: 5px 10px; border-radius: 6px; font-size: 12px;
+      cursor: pointer; white-space: nowrap; transition: all 0.15s;
+      display: flex; align-items: center; gap: 5px;
+    }
+    .mc-btn:hover { background: #252525; color: #fff; border-color: #444; }
+    .mc-btn.active { background: #e63946; border-color: #e63946; color: #fff; }
+    .mc-btn.warn:hover { background: #7f1d1d; border-color: #991b1b; color: #fca5a5; }
+
+    /* Layout picker */
+    .layout-picker { display: flex; gap: 3px; }
+    .layout-btn {
+      background: #1a1a1a; border: 1px solid #2a2a2a; color: #666;
+      width: 26px; height: 26px; border-radius: 5px; font-size: 11px;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      transition: all 0.15s; font-weight: 600;
+    }
+    .layout-btn:hover { background: #252525; color: #ccc; border-color: #444; }
+    .layout-btn.active { background: #e63946; border-color: #e63946; color: #fff; }
+    .layout-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+    /* Right side of topbar */
+    .tb-right { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+
+    .tb-title { font-size: 12px; color: #555; white-space: nowrap; }
+
+    .tb-btn {
+      background: #1a1a1a; border: 1px solid #2a2a2a; color: #888;
+      padding: 5px 11px; border-radius: 6px; font-size: 12px; cursor: pointer;
+      white-space: nowrap; transition: all 0.15s;
+    }
+    .tb-btn:hover { background: #252525; color: #fff; border-color: #444; }
+    .tb-btn.active { background: #e63946; border-color: #e63946; color: #fff; }
+
+    /* ── Grid wrapper ── */
+    .mv-wrap {
+      position: fixed; top: 50px; left: 0; right: 0; bottom: 0;
+      transition: top 0.3s ease;
+    }
+    .mv-wrap.bars-hidden { top: 0; }
+
+    /* ── Grid ── */
+    .mv-grid {
+      display: grid; width: 100%; height: 100%; gap: 2px; background: #111;
+    }
+
+    /* Auto layouts based on count */
+    .mv-grid[data-n="1"] { grid-template-columns: 1fr;           grid-template-rows: 1fr; }
+    .mv-grid[data-n="2"] { grid-template-columns: 1fr 1fr;       grid-template-rows: 1fr; }
+    .mv-grid[data-n="3"] { grid-template-columns: repeat(3,1fr); grid-template-rows: 1fr; }
+    .mv-grid[data-n="4"] { grid-template-columns: 1fr 1fr;       grid-template-rows: 1fr 1fr; }
+    .mv-grid[data-n="5"] { grid-template-columns: repeat(6,1fr); grid-template-rows: 1fr 1fr; }
+    .mv-grid[data-n="5"] .mv-cell:nth-child(-n+3) { grid-column: span 2; }
+    .mv-grid[data-n="5"] .mv-cell:nth-child(n+4)  { grid-column: span 3; }
+    .mv-grid[data-n="6"] { grid-template-columns: repeat(3,1fr); grid-template-rows: 1fr 1fr; }
+
+    /* Manual layout overrides */
+    .mv-grid[data-layout="1x1"] { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+    .mv-grid[data-layout="1x2"] { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; }
+    .mv-grid[data-layout="2x2"] { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+    .mv-grid[data-layout="2x3"] { grid-template-columns: repeat(3,1fr); grid-template-rows: 1fr 1fr; }
+    /* Reset nth-child overrides in manual mode */
+    .mv-grid[data-layout] .mv-cell { grid-column: unset; }
+
+    /* ── Solo / maximize one cell WITHIN the page (keys 1–6) ──
+       Done in CSS rather than native element-fullscreen so the host page keeps
+       keyboard focus (the app stays the only thing reading 1–6/F/0) and there's
+       only ever one native fullscreen element — the whole page, toggled by F. */
+    .mv-grid.has-solo { grid-template-columns: 1fr !important; grid-template-rows: 1fr !important; }
+    .mv-grid.has-solo .mv-cell { display: none; }
+    .mv-grid.has-solo .mv-cell.solo { display: block; grid-column: 1 / -1 !important; grid-row: 1 / -1 !important; }
+
+    /* ── Cell ── */
+    .mv-cell { position: relative; background: #000; overflow: hidden; min-width: 0; min-height: 0; cursor: grab; }
+    .mv-cell:active { cursor: grabbing; }
+
+    /* While dragging: kill iframe pointer-events so they don't swallow drag events */
+    .mv-grid.dragging .mv-cell iframe { pointer-events: none; }
+    .mv-cell.drag-src { opacity: 0.45; }
+    .mv-cell.drag-over { box-shadow: inset 0 0 0 3px #e63946; }
+
+    /* Persistent title tag — always visible when the layout appears,
+       fades out on hover so the full control bar (which also shows the title) takes over */
+    .cell-title-tag {
+      position: absolute; top: 0; left: 0; right: 0;
+      padding: 7px 10px;
+      font-size: 11px; font-weight: 600; color: #fff;
+      background: linear-gradient(to bottom, rgba(0,0,0,0.85), transparent);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      z-index: 6; pointer-events: none;
+      transition: opacity 0.2s;
+    }
+    .mv-cell:hover .cell-title-tag { opacity: 0; }
+
+    /* Muted = audio truly stopped (iframe unloaded). Overlay marks the silenced cell. */
+    .mv-cell.muted::after {
+      content: '🔇 Muted — hover, then tap 🔈 to bring it back';
+      position: absolute; inset: 0;
+      background: rgba(0,0,0,0.8);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; color: #bbb; text-align: center; padding: 0 16px;
+      z-index: 5;
+      pointer-events: none;
+    }
+
+    /* Focused cell */
+    .mv-cell.focused { z-index: 2; box-shadow: 0 0 0 2px #e63946; }
+
+    /* Iframe */
+    .mv-cell iframe {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      border: none; display: block; pointer-events: auto;
+    }
+
+    /* ── Placeholder ── */
+    .cell-placeholder {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 12px;
+      background: #0a0a0a; cursor: pointer;
+      transition: background 0.15s; z-index: 1;
+    }
+    .cell-placeholder:hover { background: #111; }
+
+    .placeholder-title {
+      font-size: 13px; font-weight: 600; color: #ccc;
+      text-align: center; padding: 0 16px; line-height: 1.4;
+    }
+
+    .load-btn {
+      background: #e63946; border: none; color: #fff;
+      padding: 8px 18px; border-radius: 7px; font-size: 13px;
+      font-weight: 600; cursor: pointer; transition: opacity 0.15s;
+    }
+    .load-btn:hover { opacity: 0.85; }
+
+    .placeholder-source { font-size: 11px; color: #444; }
+
+    /* ── Controls overlay — container is pointer-events:none; bars are auto ── */
+    .cell-controls {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column; justify-content: space-between;
+      opacity: 0; transition: opacity 0.2s;
+      pointer-events: none; z-index: 10;
+    }
+    .mv-cell:hover .cell-controls { opacity: 1; }
+
+    .ctrl-top {
+      pointer-events: auto;
+      display: flex; align-items: center; gap: 5px; padding: 7px 9px;
+      justify-content: space-between; flex-wrap: wrap; row-gap: 5px;
+      background: linear-gradient(to bottom, rgba(0,0,0,0.85), transparent);
+    }
+
+    /* Bottom bar removed — sources moved to top bar */
+
+    .ctrl-title {
+      font-size: 11px; font-weight: 600; color: #fff;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      flex: 1; min-width: 0;
+    }
+
+    .ctrl-actions { display: flex; gap: 4px; flex-shrink: 0; }
+
+    .cell-action {
+      background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.15);
+      color: #ccc; width: 24px; height: 24px; border-radius: 5px;
+      font-size: 12px; cursor: pointer; display: flex;
+      align-items: center; justify-content: center; flex-shrink: 0;
+      transition: all 0.15s;
+    }
+    .cell-action:hover { background: rgba(255,255,255,0.15); color: #fff; }
+    .cell-action.close:hover { background: #e63946; border-color: #e63946; }
+    .cell-action.active { background: #e63946; border-color: #e63946; color: #fff; }
+
+    .src-pills { display: flex; gap: 3px; flex-wrap: wrap; }
+    .src-pill {
+      background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
+      color: #ddd; padding: 2px 7px; border-radius: 4px; font-size: 10px;
+      cursor: pointer; transition: all 0.15s; text-transform: capitalize;
+    }
+    .src-pill:hover { background: rgba(255,255,255,0.2); }
+    .src-pill.active { background: #e63946; border-color: #e63946; color: #fff; }
+    /* Offline source (its /api/stream list came back empty) */
+    .src-pill.dead { opacity: 0.4; text-decoration: line-through; }
+    .src-pill.dead.active { background: #5a2a2e; border-color: #5a2a2e; }
+
+    /* Numbered streams within the selected source (language / HD / viewers) */
+    .stream-pills {
+      display: flex; gap: 3px; flex-wrap: wrap; width: 100%;
+      margin-top: 4px;
+    }
+    .stream-pill {
+      background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.15);
+      color: #bbb; padding: 2px 6px; border-radius: 4px; font-size: 10px;
+      cursor: pointer; transition: all 0.15s; display: flex; align-items: center; gap: 4px;
+    }
+    .stream-pill:hover { background: rgba(255,255,255,0.18); color: #fff; }
+    .stream-pill.active { background: #e63946; border-color: #e63946; color: #fff; }
+    .stream-pill .hd {
+      font-size: 8px; font-weight: 700; background: rgba(255,255,255,0.2);
+      padding: 0 3px; border-radius: 3px; letter-spacing: 0.3px;
+    }
+    .stream-pill.active .hd { background: rgba(255,255,255,0.3); }
+
+    /* ── Page state ── */
+    .mv-state {
+      position: fixed; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 14px;
+      background: #0d0d0d; color: #555;
+    }
+    .spinner {
+      width: 36px; height: 36px; border: 3px solid #222;
+      border-top-color: #e63946; border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Notification toast ── */
+    .toast {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+      background: #1a1a1a; border: 1px solid #2a2a2a; color: #ccc;
+      padding: 9px 18px; border-radius: 8px; font-size: 13px;
+      z-index: 999; white-space: nowrap;
+      opacity: 0; transition: opacity 0.2s;
+      pointer-events: none;
+    }
+    .toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+
+<!-- ── Top bar with Master Control ── -->
+<div class="topbar" id="topbar">
+  <a class="tb-logo" href="index.html">⚡ SW</a>
+  <div class="tb-div"></div>
+
+  <div class="master-ctrl">
+    <span class="mc-label">All streams:</span>
+
+    <!-- Reload All -->
+    <button class="mc-btn" id="mc-reload" title="Reload all streams">
+      ↺ Reload
+    </button>
+
+    <!-- Mute All / Unmute All -->
+    <button class="mc-btn" id="mc-mute" title="Visually mute all streams (covers video)">
+      🔇 Mute All
+    </button>
+
+    <!-- Pause All (hide iframes, show placeholders) -->
+    <button class="mc-btn" id="mc-pause" title="Stop all streams (removes iframes to free bandwidth)">
+      ⏹ Stop All
+    </button>
+
+    <div class="tb-div"></div>
+
+    <!-- Layout override -->
+    <span class="mc-label">Layout:</span>
+    <div class="layout-picker" id="layout-picker">
+      <button class="layout-btn" data-layout="auto" title="Auto layout">A</button>
+      <button class="layout-btn" data-layout="1x1" title="1 stream">1</button>
+      <button class="layout-btn" data-layout="1x2" title="2 streams side by side">2</button>
+      <button class="layout-btn" data-layout="2x2" title="2×2 grid">4</button>
+      <button class="layout-btn" data-layout="2x3" title="2×3 grid">6</button>
+    </div>
+  </div>
+
+  <div class="tb-right">
+    <div class="tb-title" id="topbar-title"></div>
+    <button class="tb-btn" id="mc-share" title="Copy a shareable link to this multiview">🔗 Share</button>
+    <button class="tb-btn" onclick="history.back()">← Back</button>
+    <button class="mc-btn warn" id="mc-clear" title="Remove all streams and go back to selection">
+      ✕ Clear All
+    </button>
+    <button class="tb-btn" id="fs-btn">⛶</button>
+  </div>
+</div>
+
+<div class="mv-wrap" id="mv-wrap">
+  <div class="mv-state" id="page-state">
+    <div class="spinner"></div>
+    <div style="font-size:14px">Loading streams…</div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  const SOURCE_ORDER = ['admin', 'echo', 'delta', 'golf'];
+
+  function sortedSources(sources) {
+    return [...sources].sort((a, b) => {
+      const ai = SOURCE_ORDER.indexOf(a.source);
+      const bi = SOURCE_ORDER.indexOf(b.source);
+      return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
+    });
+  }
+
+  // Frame embed.st directly (proxying/sandboxing breaks the player — see index.html note)
+  const embedUrl = (src, id, streamNo = 1) => `https://embed.st/embed/${src}/${id}/${streamNo}`;
+
+  // Per-source stream list (numbered streams w/ language, HD flag, viewers).
+  // Same endpoint as index.html. Empty array = that source is offline.
+  const STREAM_BASE = window.location.hostname === 'localhost'
+    ? 'https://streamed.pk/api/stream'
+    : '/api/stream';
+
+  // Returns viewer-sorted stream list, or [] on any failure / offline source.
+  async function fetchStreams(source, id) {
+    try {
+      const res = await fetch(`${STREAM_BASE}/${source}/${encodeURIComponent(id)}`);
+      if (!res.ok) return [];
+      const data = await res.json();
+      if (!Array.isArray(data)) return [];
+      return data.sort((a, b) => (b.viewers || 0) - (a.viewers || 0));
+    } catch {
+      return [];
+    }
+  }
+
+  // ── Parse IDs ────────────────────────────────────────────────
+  const params    = new URLSearchParams(window.location.search);
+  const requested = (params.get('ids') || '').split(',').map(s => s.trim()).filter(Boolean);
+  // Optional shared layout (?layout=2x2). Validated against the known set before use.
+  const VALID_LAYOUTS = new Set(['1x1', '1x2', '2x2', '2x3']);
+  const requestedLayout = VALID_LAYOUTS.has(params.get('layout')) ? params.get('layout') : null;
+
+  if (!requested.length) {
+    document.getElementById('page-state').innerHTML =
+      '<div style="font-size:13px">No streams selected. <a href="index.html" style="color:#e63946">← Go back</a></div>';
+  }
+
+  const API = window.location.hostname === 'localhost'
+    ? 'https://streamed.pk/api/matches/all'
+    : '/api/matches/all';
+
+  // ── State ────────────────────────────────────────────────────
+  let grid;
+  let allMuted  = false;
+  let allPaused = false; // iframes removed = "stopped"
+  // Per-cell data keyed by cell element
+  const cellData = new WeakMap(); // cell → { match, sources, srcIndex, loaded }
+
+  // ── Toast ─────────────────────────────────────────────────────
+  let toastTimer;
+  function showToast(msg) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('show'), 2000);
+  }
+
+  // ── Fetch ─────────────────────────────────────────────────────
+  async function init() {
+    let all = [];
+    try {
+      const r = await fetch(API);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      all = await r.json();
+    } catch (e) {
+      document.getElementById('page-state').innerHTML =
+        `<div style="color:#e63946;font-size:13px">Failed to load: ${e.message}</div>
+         <a href="index.html" style="color:#aaa;font-size:13px">← Go back</a>`;
+      return;
+    }
+
+    const streams = requested.map(id => all.find(m => m.id === id)).filter(Boolean);
+    if (!streams.length) {
+      document.getElementById('page-state').innerHTML =
+        '<div style="font-size:13px">Streams not found. <a href="index.html" style="color:#e63946">← Go back</a></div>';
+      return;
+    }
+
+    document.getElementById('page-state').remove();
+    buildGrid(streams);
+  }
+
+  // ── Build grid ────────────────────────────────────────────────
+  function buildGrid(streams) {
+    const wrap = document.getElementById('mv-wrap');
+    grid = document.createElement('div');
+    grid.className = 'mv-grid';
+    grid.dataset.n = streams.length;
+    updateTitle(streams.length);
+    streams.forEach(match => {
+      const sources = sortedSources(match.sources || []);
+      const cell = buildCell(match, sources);
+      grid.appendChild(cell);
+    });
+    wrap.appendChild(grid);
+    // Honor a shared ?layout, otherwise fall back to auto.
+    if (requestedLayout) {
+      grid.dataset.layout = requestedLayout;
+      updateLayoutBtns(requestedLayout);
+    } else {
+      updateLayoutBtns('auto');
+    }
+    // Auto-load every cell so streams start immediately — no "▶ Load stream" click.
+    // (Browsers may start muted under autoplay policy; the player's own controls /
+    // Reload restore audio. Use the per-cell × to free a feed you don't want.)
+    grid.querySelectorAll('.mv-cell').forEach(cell => autoLoad(cell));
+  }
+
+  function updateTitle(n) {
+    document.getElementById('topbar-title').textContent =
+      `${n} stream${n !== 1 ? 's' : ''}`;
+  }
+
+  // ── Cell ─────────────────────────────────────────────────────
+  function buildCell(match, sources) {
+    const cell = document.createElement('div');
+    cell.className = 'mv-cell';
+    // streams/streamNo hold the numbered-stream list for the active source;
+    // deadSources tracks which sources returned an empty (offline) list.
+    cellData.set(cell, { match, sources, srcIndex: 0, loaded: false, streams: [], streamNo: 1, deadSources: {} });
+
+    // Persistent title tag, present from the moment the layout appears
+    const titleTag = document.createElement('div');
+    titleTag.className = 'cell-title-tag';
+    titleTag.textContent = match.title;
+    cell.appendChild(titleTag);
+
+    addDragListeners(cell);
+    showPlaceholder(cell);
+    return cell;
+  }
+
+  function showPlaceholder(cell) {
+    const { match, sources } = cellData.get(cell);
+    const best = sources[0];
+
+    // Remove existing iframe if any
+    const iframe = cell.querySelector('iframe');
+    if (iframe) iframe.remove();
+
+    let ph = cell.querySelector('.cell-placeholder');
+    if (!ph) {
+      ph = document.createElement('div');
+      ph.className = 'cell-placeholder';
+      cell.insertBefore(ph, cell.querySelector('.cell-controls'));
+    }
+
+    ph.innerHTML = `
+      <button class="load-btn">▶ Load stream</button>
+      <div class="placeholder-source">${best ? best.source : 'No source'}</div>`;
+
+    ph.onclick = () => {
+      ph.remove();
+      const d = cellData.get(cell);
+      d.loaded = true;
+      autoLoad(cell);
+    };
+  }
+
+  function loadIframe(cell, srcIndex) {
+    const d = cellData.get(cell);
+    d.srcIndex = srcIndex;
+
+    // Remove old iframe
+    const old = cell.querySelector('iframe');
+    if (old) old.remove();
+
+    // Don't load if globally paused
+    if (allPaused) return;
+
+    const src    = d.sources[srcIndex];
+    if (!src) return;
+
+    const iframe = document.createElement('iframe');
+    iframe.setAttribute('allowfullscreen', '');
+    // No `remote-playback`: it makes Chrome's Cast button fling embed.st's <video> to
+    // the Chromecast (which fails — the receiver can't load the anti-bot embed) instead
+    // of mirroring the tab. Omitting it keeps Cast = tab-mirroring, the only thing that works.
+    iframe.setAttribute('allow', 'autoplay; fullscreen; encrypted-media; picture-in-picture');
+    iframe.src = embedUrl(src.source, src.id, d.streamNo || 1);
+
+    const ctrl = cell.querySelector('.cell-controls');
+    cell.insertBefore(iframe, ctrl || null);
+
+    // A loaded iframe is, by definition, playing audio — never silenced.
+    d.silenced = false;
+    cell.classList.remove('muted');
+
+    // Ensure controls exist
+    attachControls(cell);
+  }
+
+  // First load for a cell: probe every source in parallel, auto-pick the first
+  // source that's actually live (empty list = offline), and its busiest stream.
+  async function autoLoad(cell) {
+    const d = cellData.get(cell);
+    if (!d) return;
+    d.loaded = true;
+    const ph = cell.querySelector('.cell-placeholder');
+    if (ph) ph.remove();
+
+    // Instant feedback: load source 0 / stream 1 while we probe the rest.
+    d.srcIndex = 0; d.streamNo = 1; d.streams = [];
+    loadIframe(cell, 0);
+
+    const lists = await Promise.all(d.sources.map(s => fetchStreams(s.source, s.id)));
+    if (!cellData.has(cell) || !grid?.contains(cell)) return;
+    lists.forEach((list, i) => { d.deadSources[i] = list.length === 0; });
+
+    // First source (priority order) with a live feed; keep source 0 if all dead.
+    let pick = lists.findIndex(list => list.length > 0);
+    if (pick === -1) pick = 0;
+    d.srcIndex  = pick;
+    d.streams   = lists[pick] || [];
+    d.streamNo  = d.streams.length ? d.streams[0].streamNo : 1;
+    loadIframe(cell, pick);     // reloads to the chosen source/stream + redraws controls
+    attachControls(cell);       // ensure stream pills render even if streamNo didn't change
+  }
+
+  // Manual source switch (clicking a source pill): load its busiest stream.
+  async function selectSource(cell, srcIndex) {
+    const d = cellData.get(cell);
+    if (!d) return;
+    d.srcIndex = srcIndex;
+    d.loaded = true;
+    const ph = cell.querySelector('.cell-placeholder');
+    if (ph) ph.remove();
+
+    // Immediate stream 1 so there's no dead air while we fetch the list.
+    d.streams = []; d.streamNo = 1;
+    loadIframe(cell, srcIndex);
+
+    const src = d.sources[srcIndex];
+    const streams = await fetchStreams(src.source, src.id);
+    if (!cellData.has(cell) || !grid?.contains(cell) || d.srcIndex !== srcIndex) return;
+    d.deadSources[srcIndex] = streams.length === 0;
+    d.streams = streams;
+    if (streams.length && streams[0].streamNo !== d.streamNo) {
+      d.streamNo = streams[0].streamNo;
+      loadIframe(cell, srcIndex);
+    }
+    attachControls(cell);
+  }
+
+  // True mute = stop the audio. Browsers don't let us touch a cross-origin
+  // iframe's audio, so the only real silence is to unload the iframe. Bringing
+  // it back reloads the stream (it resumes from live).
+  function setCellSilenced(cell, silence) {
+    const d = cellData.get(cell);
+    if (!d || !d.loaded) return false;   // nothing playing → nothing to silence
+    d.silenced = silence;
+    cell.classList.toggle('muted', silence);
+    if (silence) {
+      const iframe = cell.querySelector('iframe');
+      if (iframe) iframe.remove();
+    } else if (!allPaused) {
+      const ph = cell.querySelector('.cell-placeholder');
+      if (ph) ph.remove();
+      loadIframe(cell, d.srcIndex);
+    }
+    // Sync this cell's mute button (reload=1st, mute=2nd, close=3rd)
+    const btn = cell.querySelector('.ctrl-actions .cell-action:nth-child(2)');
+    if (btn) {
+      btn.textContent = silence ? '🔈' : '🔇';
+      btn.title = silence ? 'Bring back (unmute)' : 'Mute (stops this stream)';
+      btn.classList.toggle('active', silence);
+    }
+    return true;
+  }
+
+  // Solo: silence every other loaded stream, keep this one playing.
+  function soloCell(cell) {
+    grid?.querySelectorAll('.mv-cell').forEach(c => setCellSilenced(c, c !== cell));
+    // Most cells are now muted, so the master toggle is no longer "all unmuted"
+    allMuted = false;
+    const mBtn = document.getElementById('mc-mute');
+    mBtn.classList.remove('active');
+    mBtn.textContent = '🔇 Mute All';
+    showToast(`Soloing ${cellData.get(cell)?.match?.title || 'stream'}`);
+  }
+
+  function attachControls(cell) {
+    let ctrl = cell.querySelector('.cell-controls');
+    if (ctrl) ctrl.remove();
+
+    const d = cellData.get(cell);
+    ctrl = document.createElement('div');
+    ctrl.className = 'cell-controls';
+
+    // Top bar
+    const top = document.createElement('div');
+    top.className = 'ctrl-top';
+
+    const title = document.createElement('div');
+    title.className = 'ctrl-title';
+    title.textContent = d.match.title;
+
+    // Source pills (in top bar, before action buttons)
+    if (d.sources.length > 1) {
+      const pills = document.createElement('div');
+      pills.className = 'src-pills';
+      d.sources.forEach((s, i) => {
+        const dead = d.deadSources[i] === true;
+        const pill = document.createElement('button');
+        pill.className = 'src-pill' + (i === d.srcIndex ? ' active' : '') + (dead ? ' dead' : '');
+        pill.textContent = s.source;
+        pill.title = dead ? `${s.source} — offline` : s.source;
+        pill.addEventListener('click', () => selectSource(cell, i));
+        pills.appendChild(pill);
+      });
+      top.appendChild(pills);
+    }
+
+    const actions = document.createElement('div');
+    actions.className = 'ctrl-actions';
+
+    // Reload button
+    const reloadBtn = makeAction('↺', 'Reload this stream', () => {
+      loadIframe(cell, d.srcIndex);
+      showToast('Stream reloaded');
+    });
+
+    // Mute toggle for single cell — truly silences by unloading the stream
+    const muteBtn = makeAction(
+      d.silenced ? '🔈' : '🔇',
+      d.silenced ? 'Bring back (unmute)' : 'Mute (stops this stream)',
+      () => setCellSilenced(cell, !cellData.get(cell).silenced)
+    );
+    if (d.silenced) muteBtn.classList.add('active');
+
+    // Solo button — silence every OTHER stream, keep this one's audio
+    const soloBtn = makeAction('🔊', 'Solo — mute all other streams', () => soloCell(cell));
+
+    // Close button
+    const closeBtn = makeAction('×', 'Remove stream', () => removeCell(cell));
+    closeBtn.classList.add('close');
+
+    // Order matters: setCellSilenced finds the mute button via nth-child(2)
+    actions.append(reloadBtn, muteBtn, soloBtn, closeBtn);
+    top.append(actions);
+
+    // Numbered-stream pills for the active source (language / HD), if more than one.
+    // Appended last + full-width so it wraps onto its own row under source/actions.
+    if (d.streams && d.streams.length > 1) {
+      const sp = document.createElement('div');
+      sp.className = 'stream-pills';
+      d.streams.forEach(s => {
+        const pill = document.createElement('button');
+        pill.className = 'stream-pill' + (s.streamNo === d.streamNo ? ' active' : '');
+        const lang = (s.language || '').trim() || `S${s.streamNo}`;
+        pill.textContent = lang;
+        pill.title = lang + (s.viewers ? ` · ${s.viewers} watching` : '');
+        if (s.hd) {
+          const hd = document.createElement('span');
+          hd.className = 'hd';
+          hd.textContent = 'HD';
+          pill.appendChild(hd);
+        }
+        pill.addEventListener('click', () => {
+          d.streamNo = s.streamNo;
+          loadIframe(cell, d.srcIndex);
+        });
+        sp.appendChild(pill);
+      });
+      top.append(sp);
+    }
+
+    ctrl.append(top);
+    cell.appendChild(ctrl);
+  }
+
+  function makeAction(text, title, fn) {
+    const btn = document.createElement('button');
+    btn.className = 'cell-action';
+    btn.textContent = text;
+    btn.title = title;
+    btn.addEventListener('click', fn);
+    return btn;
+  }
+
+  function removeCell(cell) {
+    cell.remove();
+    const cells = grid.querySelectorAll('.mv-cell');
+    const n = cells.length;
+    grid.dataset.n = n;
+    updateTitle(n);
+    if (n === 0) {
+      document.getElementById('mv-wrap').innerHTML =
+        `<div class="mv-state">
+          <div style="font-size:14px">No streams left.
+            <a href="index.html" style="color:#e63946"> ← Add more</a>
+          </div>
+        </div>`;
+    } else {
+      // Keep the address bar shareable as cells are closed.
+      history.replaceState(null, '', buildShareUrl());
+    }
+  }
+
+  // ── Master Controls ───────────────────────────────────────────
+
+  // Reload All
+  document.getElementById('mc-reload').addEventListener('click', () => {
+    let n = 0;
+    grid?.querySelectorAll('.mv-cell').forEach(cell => {
+      const d = cellData.get(cell);
+      if (d?.loaded) { loadIframe(cell, d.srcIndex); n++; }
+    });
+    showToast(n ? `Reloading ${n} stream${n !== 1 ? 's' : ''}` : 'No streams loaded yet');
+  });
+
+  // Mute All — runs the per-cell mute on every loaded view (true silence by unloading)
+  document.getElementById('mc-mute').addEventListener('click', () => {
+    allMuted = !allMuted;
+    const btn = document.getElementById('mc-mute');
+    btn.classList.toggle('active', allMuted);
+    btn.textContent = allMuted ? '🔈 Unmute All' : '🔇 Mute All';
+    let n = 0;
+    grid?.querySelectorAll('.mv-cell').forEach(cell => {
+      if (setCellSilenced(cell, allMuted)) n++;
+    });
+    showToast(
+      n
+        ? (allMuted ? `Muted ${n} stream${n !== 1 ? 's' : ''}` : `Unmuted ${n} stream${n !== 1 ? 's' : ''}`)
+        : 'No streams loaded yet'
+    );
+  });
+
+  // Stop All (removes iframes — frees bandwidth)
+  document.getElementById('mc-pause').addEventListener('click', () => {
+    allPaused = !allPaused;
+    const btn = document.getElementById('mc-pause');
+    btn.classList.toggle('active', allPaused);
+    btn.textContent = allPaused ? '▶ Resume All' : '⏹ Stop All';
+
+    grid?.querySelectorAll('.mv-cell').forEach(cell => {
+      const d = cellData.get(cell);
+      if (!d) return;
+      if (allPaused) {
+        // Remove iframe, show placeholder
+        const iframe = cell.querySelector('iframe');
+        if (iframe) iframe.remove();
+      } else {
+        // Restore loaded streams — but leave individually-muted ones silenced
+        if (d.loaded && !d.silenced) {
+          const ph = cell.querySelector('.cell-placeholder');
+          if (ph) ph.remove();
+          loadIframe(cell, d.srcIndex);
+        }
+      }
+    });
+    showToast(allPaused ? 'All streams stopped' : 'All streams resuming…');
+  });
+
+  // Clear All
+  document.getElementById('mc-clear').addEventListener('click', () => {
+    if (!confirm('Remove all streams and return to the home page?')) return;
+    window.location.href = 'index.html';
+  });
+
+  // Layout picker
+  document.getElementById('layout-picker').addEventListener('click', e => {
+    const btn = e.target.closest('.layout-btn');
+    if (!btn || !grid) return;
+    clearSolo();   // choosing a grid layout exits any soloed feed
+    const layout = btn.dataset.layout;
+    if (layout === 'auto') {
+      delete grid.dataset.layout;
+      grid.dataset.n = grid.querySelectorAll('.mv-cell').length;
+    } else {
+      grid.dataset.layout = layout;
+    }
+    updateLayoutBtns(layout);
+    // Keep the address bar itself shareable as the layout changes.
+    history.replaceState(null, '', buildShareUrl());
+  });
+
+  function updateLayoutBtns(active) {
+    document.querySelectorAll('.layout-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.layout === active);
+    });
+  }
+
+  // ── Share ─────────────────────────────────────────────────────
+  // Build a clean link from the cells actually open now (the user may have closed
+  // some) plus the chosen layout, so a recipient sees the same grid.
+  function buildShareUrl() {
+    const ids = grid
+      ? orderedCells().map(c => cellData.get(c)?.match?.id).filter(Boolean)
+      : requested;
+    const u = new URL(location.origin + location.pathname);
+    u.searchParams.set('ids', ids.join(','));
+    if (grid?.dataset.layout) u.searchParams.set('layout', grid.dataset.layout); // omit when auto
+    return u.toString();
+  }
+
+  document.getElementById('mc-share').addEventListener('click', async () => {
+    const url = buildShareUrl();
+    try {
+      await navigator.clipboard.writeText(url);
+      showToast('Link copied to clipboard');
+    } catch {
+      prompt('Copy this link:', url);   // clipboard blocked (insecure ctx) → manual copy
+    }
+  });
+
+  // ── Auto-hide topbar ──────────────────────────────────────────
+  const topbar = document.getElementById('topbar');
+  let hideTimer;
+  function resetBar() {
+    if (!document.hasFocus()) window.focus();
+    topbar.classList.remove('hidden');
+    document.getElementById('mv-wrap').classList.remove('bars-hidden');
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => {
+      topbar.classList.add('hidden');
+      document.getElementById('mv-wrap').classList.add('bars-hidden');
+    }, 4000);
+  }
+  document.addEventListener('mousemove', resetBar);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) window.focus(); });
+  // Recapture focus when an iframe steals it, but NOT during fullscreen transitions —
+  // the browser fires blur during requestFullscreen/exitFullscreen, and calling
+  // window.focus() mid-transition cancels it (causing the "cycling" bug).
+  let fsTransition = false;
+  window.addEventListener('blur', () => {
+    if (!document.hidden && !fsTransition) requestAnimationFrame(() => window.focus());
+  });
+  resetBar();
+
+  // ── Fullscreen ────────────────────────────────────────────────
+  function doFullscreen(enter) {
+    fsTransition = true;
+    const p = enter
+      ? document.documentElement.requestFullscreen()
+      : document.exitFullscreen();
+    p.catch(() => {}).finally(() => { fsTransition = false; });
+  }
+  document.getElementById('fs-btn').addEventListener('click', () => {
+    doFullscreen(!document.fullscreenElement);
+  });
+  document.addEventListener('fullscreenchange', () => {
+    fsTransition = false;
+    document.getElementById('fs-btn').textContent =
+      document.fullscreenElement ? '⛶ Exit' : '⛶';
+  });
+
+  // ── Drag to reorder cells ─────────────────────────────────────
+  let dragSrc = null;
+
+  // Cells in their VISUAL order (CSS `order`), not DOM order. Reordering is done by
+  // reassigning `order` rather than moving DOM nodes — moving an <iframe> in the DOM
+  // forces the browser to reload it, which would unload the live stream. Everything
+  // that cares about position (keys 1–6, share URL) reads this instead of the DOM.
+  function orderedCells() {
+    return [...(grid?.querySelectorAll('.mv-cell') || [])]
+      .sort((a, b) => (+a.style.order || 0) - (+b.style.order || 0));
+  }
+
+  function addDragListeners(cell) {
+    cell.setAttribute('draggable', 'true');
+    cell.addEventListener('dragstart', e => {
+      dragSrc = cell;
+      cell.classList.add('drag-src');
+      grid.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    cell.addEventListener('dragend', () => {
+      cell.classList.remove('drag-src');
+      grid?.classList.remove('dragging');
+      grid?.querySelectorAll('.mv-cell').forEach(c => c.classList.remove('drag-over'));
+      dragSrc = null;
+    });
+    cell.addEventListener('dragover', e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if (dragSrc && cell !== dragSrc) cell.classList.add('drag-over');
+    });
+    cell.addEventListener('dragleave', () => cell.classList.remove('drag-over'));
+    cell.addEventListener('drop', e => {
+      e.preventDefault();
+      cell.classList.remove('drag-over');
+      if (!dragSrc || cell === dragSrc) return;
+      // Reorder by reassigning CSS `order` — DOM nodes (and their iframes) never move.
+      const cells = orderedCells();
+      const si = cells.indexOf(dragSrc), ti = cells.indexOf(cell);
+      if (si < 0 || ti < 0) return;
+      cells.splice(si, 1);
+      const targetIdx = cells.indexOf(cell);
+      cells.splice(si < ti ? targetIdx + 1 : targetIdx, 0, dragSrc);
+      cells.forEach((c, i) => { c.style.order = i; });
+      history.replaceState(null, '', buildShareUrl());
+    });
+  }
+
+  // ── Solo / maximize a cell within the page (keys 1–6) ─────────
+  // Pure CSS — no native fullscreen — so the host always keeps keyboard focus
+  // and F stays the single page-fullscreen toggle that composes with this.
+  function soloCellByIndex(i) {
+    if (!grid) return;
+    const cells = orderedCells();   // by visual position, so 1–6 match what you see
+    const cell = cells[i];
+    if (!cell) return;
+    const already = cell.classList.contains('solo') && grid.classList.contains('has-solo');
+    cells.forEach(c => c.classList.remove('solo'));
+    if (already) {
+      grid.classList.remove('has-solo');     // pressing the same number again → back to grid
+    } else {
+      cell.classList.add('solo');
+      grid.classList.add('has-solo');
+    }
+  }
+  function clearSolo() {
+    grid?.classList.remove('has-solo');
+    grid?.querySelectorAll('.mv-cell.solo').forEach(c => c.classList.remove('solo'));
+  }
+
+  // Toggle-mute one window by index. "Mute" = stop that stream (browsers can't
+  // silence a cross-origin iframe's audio without unloading it); reuses
+  // setCellSilenced so the 🔇 overlay + per-cell button stay in sync.
+  function muteCellByIndex(i) {
+    muteCell(orderedCells()[i]);   // by visual position
+  }
+  function muteCell(cell) {
+    if (!cell) return;
+    const d = cellData.get(cell);
+    if (!d) return;
+    setCellSilenced(cell, !d.silenced);
+  }
+
+  // ── Keyboard shortcuts ────────────────────────────────────────
+  // F page fullscreen toggle · 1–6 solo a feed (toggle) · Shift+1–6 mute that feed
+  // 0 back to grid · M mute all · Space stop/resume hovered cell (or all) · R reload all
+  document.addEventListener('keydown', e => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const k = e.key.toLowerCase();
+    // Number keys via e.code so Shift+digit still resolves to a number (not "!@#…").
+    // Plain digit = solo that feed; Shift+digit = toggle-mute that feed.
+    const digit = /^Digit([1-6])$/.exec(e.code || '');
+    if (digit) {
+      const i = +digit[1] - 1;
+      if (e.shiftKey) muteCellByIndex(i); else soloCellByIndex(i);
+      resetBar(); return;
+    }
+    if (k === 'm') {
+      // Mute the window under the cursor; fall back to master mute when none hovered.
+      // (True audio-only mute isn't possible on a cross-origin player — this stops the
+      // stream; for audio-off-video-on use the player's own in-frame mute button.)
+      const hovered = grid?.querySelector('.mv-cell:hover');
+      if (hovered) {
+        muteCell(hovered);
+      } else {
+        document.getElementById('mc-mute').click();
+      }
+      resetBar();
+    } else if (k === 'f') {
+      doFullscreen(!document.fullscreenElement);
+      resetBar();
+    } else if (k === '0') {
+      clearSolo();
+      document.querySelector('.layout-btn[data-layout="auto"]')?.click(); resetBar();
+    } else if (k === 'r') {
+      document.getElementById('mc-reload').click(); resetBar();
+    } else if (e.key === ' ') {
+      // Space: stop/resume the cell the mouse is over, or toggle Stop All if no cell hovered.
+      e.preventDefault();
+      const hovered = grid?.querySelector('.mv-cell:hover');
+      if (hovered) {
+        const d = cellData.get(hovered);
+        if (!d) return;
+        if (d.loaded && hovered.querySelector('iframe')) {
+          // Cell is playing — stop it
+          const iframe = hovered.querySelector('iframe');
+          if (iframe) iframe.remove();
+          d.silenced = false;
+        } else if (d.loaded) {
+          // Cell is stopped — resume it
+          const ph = hovered.querySelector('.cell-placeholder');
+          if (ph) ph.remove();
+          loadIframe(hovered, d.srcIndex);
+        }
+        attachControls(hovered);
+      } else {
+        document.getElementById('mc-pause').click();
+      }
+      resetBar();
+    } else {
+      return;
+    }
+  });
+
+  init();
+</script>
+</body>
+</html>

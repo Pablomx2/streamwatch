@@ -1,0 +1,26 @@
+[functions]
+  directory = "netlify/functions"
+
+# Proxy match data API (fixes CORS on streamed.pk's JSON API)
+[[redirects]]
+  from   = "/api/matches/*"
+  to     = "/.netlify/functions/api/:splat"
+  status = 200
+  force  = true
+
+# Proxy per-source stream list (numbered streams: language, HD flag, viewers)
+[[redirects]]
+  from   = "/api/stream/*"
+  to     = "/.netlify/functions/stream/:splat"
+  status = 200
+  force  = true
+
+# Proxy + aggregate ESPN scoreboards for live scores / true status (per category)
+[[redirects]]
+  from   = "/api/scores/*"
+  to     = "/.netlify/functions/scores/:splat"
+  status = 200
+  force  = true
+
+# NOTE: embed pages are framed directly from embed.st (no proxy) — the player has
+# anti-sandbox / location-aware logic that breaks when proxied. See CLAUDE.md.
