@@ -106,15 +106,29 @@ Source priority order: `admin > echo > delta > golf` (the only four sources that
 
 ## Local Development
 
-The API base auto-detects environment:
+The API base auto-detects environment — it only routes through the Netlify proxy
+functions when actually running on a `*.netlify.app` host; everywhere else
+(`localhost`, a GitHub Pages mirror, any other static host) it hits streamed.pk
+directly, since streamed.pk sends `Access-Control-Allow-Origin: *`:
 ```js
 // index.html and multiview.html both have this
-const API = window.location.hostname === 'localhost'
-  ? 'https://streamed.pk/api/matches/all'   // hit streamed.pk directly (no CORS issue in dev)
-  : '/api/matches/all';                      // use Netlify proxy in production
+const usesNetlifyProxy = /\.netlify\.app$/.test(window.location.hostname);
+const API = usesNetlifyProxy
+  ? '/api/matches/all'                      // use Netlify proxy in production
+  : 'https://streamed.pk/api/matches/all';  // hit streamed.pk directly elsewhere
 ```
+`/api/scores` (ESPN live scores) has no direct-browser equivalent and stays
+Netlify-only — non-Netlify hosts just keep the time-based heuristic (`SCORES_BASE = null`).
 
 Embeds point straight at `https://embed.st/embed/...`, so the player works in local dev too (only the match-data API needs the Netlify proxy in production).
+
+**A read-only mirror of this app is also published via GitHub Pages** at
+`Pablomx2/tcstillspeeding` → `https://pablomx2.github.io/tcstillspeeding/`. It's a
+straight copy of `index.html`/`multiview.html`/`netlify/`, kept in sync manually
+(no CI) — it has no functions, so ESPN scores fall back to the heuristic there,
+but match browsing and streaming work via the direct streamed.pk calls above.
+**`pablogames.netlify.app` remains the primary/production site**; the GitHub
+Pages copy is a secondary mirror.
 
 Run locally with Netlify CLI:
 ```bash
