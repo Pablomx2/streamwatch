@@ -340,9 +340,12 @@
 
   // Per-source stream list (numbered streams w/ language, HD flag, viewers).
   // Same endpoint as index.html. Empty array = that source is offline.
-  const STREAM_BASE = window.location.hostname === 'localhost'
-    ? 'https://streamed.pk/api/stream'
-    : '/api/stream';
+  // Only the Netlify deploy has the proxy function; everywhere else (localhost,
+  // GitHub Pages, etc.) hits streamed.pk directly — it allows CORS from any origin.
+  const usesNetlifyProxy = /\.netlify\.app$/.test(window.location.hostname);
+  const STREAM_BASE = usesNetlifyProxy
+    ? '/api/stream'
+    : 'https://streamed.pk/api/stream';
 
   // Returns viewer-sorted stream list, or [] on any failure / offline source.
   async function fetchStreams(source, id) {
@@ -369,9 +372,9 @@
       '<div style="font-size:13px">No streams selected. <a href="index.html" style="color:#e63946">← Go back</a></div>';
   }
 
-  const API = window.location.hostname === 'localhost'
-    ? 'https://streamed.pk/api/matches/all'
-    : '/api/matches/all';
+  const API = usesNetlifyProxy
+    ? '/api/matches/all'
+    : 'https://streamed.pk/api/matches/all';
 
   // ── State ────────────────────────────────────────────────────
   let grid;

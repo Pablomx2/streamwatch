@@ -707,18 +707,23 @@
 
 <script>
   // ── Config ──────────────────────────────────────────────────
-  const API_BASE = window.location.hostname === 'localhost'
-    ? 'https://streamed.pk/api/matches'
-    : '/api/matches';
+  // Only the Netlify deploy has the proxy functions; everywhere else (localhost,
+  // GitHub Pages, any other static mirror) hits streamed.pk directly — it sends
+  // Access-Control-Allow-Origin: * so a direct browser call works fine.
+  const usesNetlifyProxy = /\.netlify\.app$/.test(window.location.hostname);
+  const API_BASE = usesNetlifyProxy
+    ? '/api/matches'
+    : 'https://streamed.pk/api/matches';
 
   // Per-source stream list (numbered streams w/ language, HD flag, viewers)
-  const STREAM_BASE = window.location.hostname === 'localhost'
-    ? 'https://streamed.pk/api/stream'
-    : '/api/stream';
+  const STREAM_BASE = usesNetlifyProxy
+    ? '/api/stream'
+    : 'https://streamed.pk/api/stream';
 
-  // ESPN live-scores proxy (aggregates per-league scoreboards server-side). Always
-  // the function route — there's no direct browser call (needs `netlify dev` locally).
-  const SCORES_BASE = '/api/scores';
+  // ESPN live-scores proxy (aggregates per-league scoreboards server-side). Only
+  // exists as a Netlify function — no direct browser equivalent, so non-Netlify
+  // hosts (localhost without `netlify dev`, GitHub Pages, etc.) just keep the heuristic.
+  const SCORES_BASE = usesNetlifyProxy ? '/api/scores' : null;
   // Categories ESPN covers (team-vs-team leagues). Matches scores.js ESPN_LEAGUES;
   // others get no score and stay on the time heuristic.
   const SCORE_CATEGORIES = new Set([
@@ -1411,6 +1416,7 @@
   // Pull ESPN scoreboards for the covered categories currently on the grid and match
   // them to our matches. Rebuilds scoreByMatch; unmatched matches keep the heuristic.
   async function refreshScores() {
+    if (!SCORES_BASE) { scoreByMatch = {}; return; }
     const cats = [...new Set(allMatches.map(m => m.category))].filter(c => SCORE_CATEGORIES.has(c));
     if (!cats.length) { scoreByMatch = {}; return; }
     try {
