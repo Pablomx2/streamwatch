@@ -509,6 +509,7 @@
       font-size: 14px;
       font-weight: 600;
       flex: 1;
+      min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -517,12 +518,22 @@
     .source-label {
       font-size: 12px;
       color: #555;
+      flex-shrink: 0;
     }
 
+    /* Horizontal-scroll carousel, not a wrapping grid — a wide source/stream
+       list must never wrap to multiple rows, or its height balloons and pushes
+       the player (flex:1 below) off the bottom of the screen on mobile. */
     .source-btns {
       display: flex;
       gap: 6px;
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      scroll-snap-type: x proximity;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
     }
+    .source-btns::-webkit-scrollbar { display: none; }
 
     .src-btn {
       background: #1a1a1a;
@@ -534,6 +545,8 @@
       cursor: pointer;
       transition: all 0.15s;
       text-transform: capitalize;
+      flex-shrink: 0;
+      scroll-snap-align: start;
     }
 
     .src-btn:hover { border-color: #555; color: #ccc; }
@@ -557,9 +570,13 @@
     .stream-btns {
       display: flex;
       gap: 6px;
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
       overflow-x: auto;
+      scroll-snap-type: x proximity;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
     }
+    .stream-btns::-webkit-scrollbar { display: none; }
 
     .stream-btn {
       background: #1a1a1a;
@@ -574,6 +591,8 @@
       display: flex;
       align-items: center;
       gap: 6px;
+      flex-shrink: 0;
+      scroll-snap-align: start;
     }
     .stream-btn:hover { border-color: #555; color: #ccc; }
     .stream-btn.active { background: #e63946; border-color: #e63946; color: #fff; }
@@ -606,6 +625,27 @@
     }
     /* In fullscreen, hide the cursor too once the bars hide. */
     .modal-overlay.fs.bars-hidden { cursor: none; }
+
+    /* Mobile: the modal-bar's back/title/score/"Source:" label/source pills all
+       fighting for one row is what made this feel crowded. Push the source
+       carousel onto its own full-width row (it already scrolls horizontally,
+       see .source-btns) and drop the redundant "Source:" text label so the
+       top row only carries Back + title + score. Shrinking this header down
+       to two compact rows (instead of an unbounded wrap) is also what gives
+       the player area — flex:1 below — the room to sit centered on screen. */
+    @media (max-width: 700px) {
+      .modal-bar {
+        flex-wrap: wrap;
+        row-gap: 6px;
+        padding: 8px 12px;
+      }
+      .modal-bar .source-label { display: none; }
+      .source-btns {
+        flex-basis: 100%;
+        order: 3;
+      }
+      .stream-bar { padding: 6px 12px; }
+    }
 
     .player-area {
       flex: 1;
