@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StreamWatch IPTV (Beta)</title>
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0d0d0d;
+    color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    min-height: 100vh;
+  }
+
+  header {
+    background: #111;
+    border-bottom: 1px solid #1e1e1e;
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    flex-wrap: wrap;
+  }
+
+  .logo { font-size: 18px; font-weight: 800; letter-spacing: -0.5px; color: #e63946; white-space: nowrap; }
+  .beta-tag {
+    background: #2a1a00; color: #f0a500; border: 1px solid #4a3400;
+    font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 20px;
+    letter-spacing: 0.5px; text-transform: uppercase;
+  }
+
+  .search-wrap { flex: 1; max-width: 420px; position: relative; }
+  .search-icon { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: #555; font-size: 14px; pointer-events: none; }
+  #search {
+    width: 100%; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 8px;
+    padding: 8px 12px 8px 34px; color: #fff; font-size: 14px; outline: none; transition: border-color 0.15s;
+  }
+  #search:focus { border-color: #e63946; }
+  #search::placeholder { color: #555; }
+
+  .header-right { margin-left: auto; font-size: 12px; color: #555; white-space: nowrap; display: flex; align-items: center; gap: 10px; }
+  .swap-link {
+    color: #aaa; text-decoration: none; border: 1px solid #2a2a2a; border-radius: 6px;
+    padding: 5px 10px; font-size: 12px; transition: all 0.15s; white-space: nowrap;
+  }
+  .swap-link:hover { border-color: #e63946; color: #fff; }
+
+  .sport-tabs {
+    background: #111; border-bottom: 1px solid #1a1a1a; padding: 0 20px;
+    display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none;
+  }
+  .sport-tabs::-webkit-scrollbar { display: none; }
+
+  .tab {
+    background: none; border: none; border-bottom: 2px solid transparent; color: #666;
+    padding: 11px 14px; font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap;
+    transition: all 0.15s; display: flex; align-items: center; gap: 5px;
+  }
+  .tab:hover { color: #ccc; }
+  .tab.active { color: #fff; border-bottom-color: #e63946; }
+
+  .toolbar { padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .count { font-size: 13px; color: #555; }
+  .toolbar-right { display: flex; align-items: center; gap: 8px; }
+
+  .sort-select {
+    background: #1a1a1a; border: 1px solid #2a2a2a; color: #aaa;
+    padding: 5px 10px; border-radius: 6px; font-size: 12px; cursor: pointer;
+  }
+
+  #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 14px; padding: 0 20px 40px; }
+
+  .card {
+    background: #141414; border: 1px solid #1e1e1e; border-radius: 10px; overflow: hidden;
+    cursor: pointer; transition: border-color 0.18s, transform 0.18s, box-shadow 0.18s;
+  }
+  .card:hover { border-color: #e63946; transform: translateY(-3px); box-shadow: 0 8px 24px rgba(230,57,70,0.15); }
+
+  .card-thumb {
+    width: 100%; aspect-ratio: 16/9; background: #1a1a1a; display: flex; align-items: center;
+    justify-content: center; font-size: 40px; overflow: hidden; position: relative;
+  }
+  .card-thumb > img { width: 100%; height: 100%; object-fit: contain; padding: 14px; background: #161616; }
+
+  .thumb-live {
+    position: absolute; top: 8px; left: 8px; background: #e63946; color: #fff; font-size: 10px;
+    font-weight: 700; padding: 2px 7px; border-radius: 4px; letter-spacing: 0.5px;
+    animation: livepulse 1.8s ease-in-out infinite;
+  }
+  @keyframes livepulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+
+  .card-body { padding: 12px 14px 14px; }
+  .card-teams { font-size: 14px; font-weight: 600; line-height: 1.4; margin-bottom: 8px; color: #f0f0f0; }
+  .card-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+  .pill { font-size: 11px; padding: 2px 8px; border-radius: 20px; background: #1e1e1e; color: #888; border: 1px solid #2a2a2a; text-transform: capitalize; }
+  .pill-sport { color: #aaa; }
+  .card-time { font-size: 11px; color: #555; margin-left: auto; }
+
+  .state { grid-column: 1 / -1; text-align: center; padding: 80px 20px; color: #444; }
+  .state-icon { font-size: 40px; margin-bottom: 12px; }
+  .state-msg { font-size: 15px; }
+  .state-sub { font-size: 13px; color: #333; margin-top: 6px; }
+
+  .spinner {
+    width: 36px; height: 36px; border: 3px solid #222; border-top-color: #e63946;
+    border-radius: 50%; animation: spin 0.7s linear infinite; margin: 0 auto 16px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.96); z-index: 200; flex-direction: column; }
+  .modal-overlay.open { display: flex; }
+
+  .modal-bar { background: #111; border-bottom: 1px solid #1e1e1e; padding: 10px 16px; display: flex; align-items: center; gap: 12px; flex-shrink: 0; flex-wrap: wrap; }
+  .modal-back {
+    background: #1a1a1a; border: 1px solid #2a2a2a; color: #aaa; padding: 5px 12px; border-radius: 6px;
+    font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 5px; transition: background 0.15s;
+  }
+  .modal-back:hover { background: #222; color: #fff; }
+  .modal-title { font-size: 14px; font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .source-label { font-size: 12px; color: #555; }
+
+  .stream-bar { background: #0d0d0d; border-bottom: 1px solid #1e1e1e; padding: 8px 16px; display: none; align-items: center; gap: 12px; flex-shrink: 0; flex-wrap: wrap; }
+  .stream-bar.show { display: flex; }
+  .stream-btns { display: flex; gap: 6px; flex-wrap: wrap; overflow-x: auto; }
+  .stream-btn {
+    background: #1a1a1a; border: 1px solid #2a2a2a; color: #999; padding: 4px 10px; border-radius: 6px;
+    font-size: 12px; cursor: pointer; transition: all 0.15s; white-space: nowrap; display: flex; align-items: center; gap: 6px;
+  }
+  .stream-btn:hover { border-color: #555; color: #ccc; }
+  .stream-btn.active { background: #e63946; border-color: #e63946; color: #fff; }
+  .stream-btn .hd-tag { font-size: 9px; font-weight: 700; background: #2563eb; color: #fff; padding: 1px 4px; border-radius: 3px; letter-spacing: 0.3px; }
+  .stream-btn.active .hd-tag { background: rgba(255,255,255,0.25); }
+
+  .player-area { flex: 1; position: relative; background: #000; display: flex; align-items: center; justify-content: center; }
+  #player { width: 100%; height: 100%; background: #000; }
+  .player-note {
+    position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+    background: rgba(20,20,20,0.92); border: 1px solid #2a2a2a; color: #999;
+    font-size: 12px; padding: 8px 14px; border-radius: 8px; max-width: 80%; text-align: center; display: none;
+  }
+  .player-note.show { display: block; }
+
+  @media (max-width: 640px) {
+    .search-wrap { order: 3; max-width: none; flex-basis: 100%; }
+    #grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding: 0 12px 30px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">⚡ StreamWatch</div>
+  <span class="beta-tag">IPTV Beta</span>
+  <div class="search-wrap">
+    <span class="search-icon">🔍</span>
+    <input id="search" type="text" placeholder="Search channels or countries…" autocomplete="off">
+  </div>
+  <div class="header-right">
+    <span id="event-count"></span>
+    <a class="swap-link" href="index.html">← Match streams (streamed.pk)</a>
+  </div>
+</header>
+
+<div class="sport-tabs" id="sport-tabs">
+  <button class="tab active" data-cat="all">🏆 All</button>
+</div>
+
+<div class="toolbar">
+  <div class="count" id="count-label"></div>
+  <div class="toolbar-right">
+    <select class="sort-select" id="sort">
+      <option value="streams">Most streams</option>
+      <option value="alpha">A–Z</option>
+      <option value="country">Country</option>
+    </select>
+  </div>
+</div>
+
+<div id="grid">
+  <div class="state">
+    <div class="spinner"></div>
+    <div class="state-msg">Loading sports channels…</div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal">
+  <div class="modal-bar">
+    <button class="modal-back" id="modal-close">← Back</button>
+    <div class="modal-title" id="modal-title"></div>
+  </div>
+  <div class="stream-bar" id="stream-bar">
+    <span class="source-label">Streams:</span>
+    <div class="stream-btns" id="stream-btns"></div>
+  </div>
+  <div class="player-area">
+    <video id="player" controls autoplay playsinline></video>
+    <div class="player-note" id="player-note"></div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
+<script>
+  // ── Config ──────────────────────────────────────────────────
+  // iptv-org/api ships fully static, CORS-open JSON (Access-Control-Allow-Origin: *
+  // from GitHub Pages), so this fork needs no Netlify proxy function — it fetches
+  // directly on every host (Netlify, GitHub Pages mirror, or plain localhost).
+  const IPTV_BASE = 'https://iptv-org.github.io/api';
+
+  // Optional CORS-unlocking proxy (see cloudflare-worker.js in the streamwatch-iptv
+  // repo) for streams whose manifest locks Access-Control-Allow-Origin to their own
+  // domain (common with Pluto TV re-broadcasts) — a restriction the browser enforces
+  // even for native <video> HLS playback, so no client-side header trick can get
+  // around it. Leave blank to skip proxying entirely (those streams just get
+  // auto-skipped by loadStream's dead-stream fallback instead of playing).
+  const PROXY_BASE = '';
+
+  // Same per-sport bucket set + emoji as index.html's SPORT_EMOJI, so the tab bar
+  // and pills read identically across both versions of the app.
+  const SPORT_EMOJI = {
+    basketball: '🏀', football: '⚽', 'american-football': '🏈',
+    hockey: '🏒', baseball: '⚾', 'motor-sports': '🏎', fight: '🥊',
+    tennis: '🎾', rugby: '🏉', golf: '⛳', cricket: '🏏',
+    billiards: '🎱', afl: '🏉', darts: '🎯', other: '🎮'
+  };
+  // Tab display order — mirrors index.html's static tab list; a bucket only
+  // gets a tab if at least one loaded channel actually falls into it.
+  const CATEGORY_ORDER = ['basketball', 'football', 'american-football', 'hockey',
+    'baseball', 'motor-sports', 'fight', 'tennis', 'rugby', 'golf', 'cricket',
+    'billiards', 'afl', 'darts', 'other'];
+
+  // iptv-org only has one flat "sports" category (no per-sport split like
+  // streamed.pk), so channels are re-bucketed here by name/network keywords to
+  // populate the same tabs the streamed.pk version uses. Order matters: specific
+  // leagues/sports are checked before the generic "football"/"soccer" catch-all
+  // so "American Football" / "AFL" networks don't get miscategorized as soccer.
+  function classify(channel) {
+    const n = [channel.name, ...(channel.alt_names || []), channel.network || '']
+      .join(' ').toLowerCase();
+    if (/\bnba\b|\bwnba\b|basketball/.test(n)) return 'basketball';
+    if (/\bnfl\b|american football/.test(n)) return 'american-football';
+    if (/\bafl\b|australian football/.test(n)) return 'afl';
+    if (/\bnhl\b|\bhockey\b/.test(n)) return 'hockey';
+    if (/\bmlb\b|baseball/.test(n)) return 'baseball';
+    if (/\brugby\b/.test(n)) return 'rugby';
+    if (/\bcricket\b/.test(n)) return 'cricket';
+    if (/\bgolf\b/.test(n)) return 'golf';
+    if (/\btennis\b|\batp\b|\bwta\b/.test(n)) return 'tennis';
+    if (/\bdarts\b/.test(n)) return 'darts';
+    if (/billiard|snooker|\bpool\b/.test(n)) return 'billiards';
+    if (/\bufc\b|\bmma\b|boxing|wrestl|\bwwe\b|\bfight/.test(n)) return 'fight';
+    if (/\bf1\b|formula ?1|motogp|nascar|motor ?sport|\bracing\b/.test(n)) return 'motor-sports';
+    if (/football|soccer|\bfc\b|premier league|la ?liga|bundesliga|serie ?a|ligue ?1|uefa|fifa|champions league/.test(n)) return 'football';
+    return 'other';
+  }
+
+  const flagEmoji = code => {
+    if (!code || code.length !== 2) return '🏳️';
+    return String.fromCodePoint(...[...code.toUpperCase()].map(c => 127397 + c.charCodeAt(0)));
+  };
+
+  const emoji = cat => SPORT_EMOJI[cat] || '🏆';
+
+  // ── State ────────────────────────────────────────────────────
+  let allChannels = [];   // { id, name, country, category, logo, streams:[{url,quality,label}] }
+  let activeCategory = 'all';
+  let searchQuery = '';
+  let sortMode = 'streams';
+  let hls = null;          // current Hls.js instance, torn down on modal close/switch
+  let loadToken = 0;       // bumped on every loadStream() call; stale error events are ignored
+  const deadStreams = new Set(); // `${channelId}:${index}` that failed this session
+
+  // ── Load ─────────────────────────────────────────────────────
+  async function loadChannels() {
+    const grid = document.getElementById('grid');
+    try {
+      const [channels, streams, blocklist, logos] = await Promise.all([
+        fetch(`${IPTV_BASE}/channels.json`).then(r => r.json()),
+        fetch(`${IPTV_BASE}/streams.json`).then(r => r.json()),
+        fetch(`${IPTV_BASE}/blocklist.json`).then(r => r.json()),
+        fetch(`${IPTV_BASE}/logos.json`).then(r => r.json())
+      ]);
+
+      const blocked = new Set(blocklist.map(b => b.channel));
+
+      const streamsByChannel = {};
+      for (const s of streams) {
+        if (!s.channel || blocked.has(s.channel) || !s.url) continue;
+        (streamsByChannel[s.channel] ||= []).push(s);
+      }
+
+      const logoByChannel = {};
+      for (const l of logos) {
+        if (!l.channel || l.feed || logoByChannel[l.channel]) continue; // first (main feed) logo wins
+        logoByChannel[l.channel] = l.url;
+      }
+
+      allChannels = channels
+        .filter(c => !c.closed && !blocked.has(c.id) && (c.categories || []).includes('sports'))
+        .map(c => ({
+          id: c.id,
+          name: c.name,
+          country: c.country,
+          category: classify(c),
+          logo: logoByChannel[c.id] || null,
+          streams: (streamsByChannel[c.id] || []).map((s, i) => ({
+            url: s.url,
+            quality: s.quality || null,
+            label: s.title || `Stream ${i + 1}`
+          }))
+        }))
+        .filter(c => c.streams.length > 0);
+
+      buildTabs();
+      renderGrid();
+    } catch (err) {
+      grid.innerHTML = `
+        <div class="state">
+          <div class="state-icon">⚠️</div>
+          <div class="state-msg">Couldn't load the iptv-org channel list</div>
+          <div class="state-sub">${err.message || 'Check your connection and reload'}</div>
+        </div>`;
+    }
+  }
+
+  function buildTabs() {
+    const present = new Set(allChannels.map(c => c.category));
+    const bar = document.getElementById('sport-tabs');
+    const tabs = ['<button class="tab active" data-cat="all">🏆 All</button>'];
+    for (const cat of CATEGORY_ORDER) {
+      if (!present.has(cat)) continue;
+      const label = cat.replace(/-/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase());
+      tabs.push(`<button class="tab" data-cat="${cat}">${emoji(cat)} ${label}</button>`);
+    }
+    bar.innerHTML = tabs.join('');
+  }
+
+  // ── Filter / sort ────────────────────────────────────────────
+  function getFiltered() {
+    let list = allChannels;
+    if (activeCategory !== 'all') list = list.filter(c => c.category === activeCategory);
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      list = list.filter(c => c.name.toLowerCase().includes(q) || (c.country || '').toLowerCase().includes(q));
+    }
+    list = [...list];
+    if (sortMode === 'streams') list.sort((a, b) => b.streams.length - a.streams.length);
+    else if (sortMode === 'alpha') list.sort((a, b) => a.name.localeCompare(b.name));
+    else if (sortMode === 'country') list.sort((a, b) => (a.country || '').localeCompare(b.country || '') || a.name.localeCompare(b.name));
+    return list;
+  }
+
+  // ── Render ───────────────────────────────────────────────────
+  function renderGrid() {
+    const grid = document.getElementById('grid');
+    const channels = getFiltered();
+
+    document.getElementById('count-label').textContent = `${channels.length} channel${channels.length === 1 ? '' : 's'}`;
+    document.getElementById('event-count').textContent = `${allChannels.length} sports channels loaded`;
+
+    if (!channels.length) {
+      grid.innerHTML = `
+        <div class="state">
+          <div class="state-icon">🔍</div>
+          <div class="state-msg">No channels found</div>
+          <div class="state-sub">Try a different sport or search term</div>
+        </div>`;
+      return;
+    }
+
+    grid.innerHTML = channels.map(c => {
+      const thumbHtml = c.logo
+        ? `<img src="${c.logo}" alt="" loading="lazy" onerror="this.replaceWith(document.createTextNode('${emoji(c.category)}'))">`
+        : emoji(c.category);
+
+      return `
+        <div class="card" data-id="${c.id}">
+          <div class="card-thumb">
+            ${thumbHtml}
+            <span class="thumb-live">● LIVE</span>
+          </div>
+          <div class="card-body">
+            <div class="card-teams">${c.name}</div>
+            <div class="card-meta">
+              <span class="pill pill-sport">${emoji(c.category)} ${c.category.replace(/-/g, ' ')}</span>
+              ${c.country ? `<span class="pill">${flagEmoji(c.country)} ${c.country}</span>` : ''}
+              <span class="card-time">${c.streams.length} stream${c.streams.length === 1 ? '' : 's'}</span>
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+
+    grid.querySelectorAll('.card').forEach(card => {
+      card.addEventListener('click', () => openChannel(card.dataset.id));
+    });
+  }
+
+  // ── Player modal ─────────────────────────────────────────────
+  function teardownPlayer() {
+    const video = document.getElementById('player');
+    if (hls) { hls.destroy(); hls = null; }
+    video.removeAttribute('src');
+    video.load();
+  }
+
+  function markStreamButton(index, cls) {
+    document.querySelector(`.stream-btn[data-i="${index}"]`)?.classList.add(cls);
+  }
+
+  function removeStreamButton(index) {
+    document.querySelector(`.stream-btn[data-i="${index}"]`)?.remove();
+  }
+
+  function proxied(url) {
+    return `${PROXY_BASE}/proxy?url=${encodeURIComponent(url)}`;
+  }
+
+  // Loads streams[index] for `channel`. On playback failure (native <video> error
+  // event, which is the only signal available when the browser takes the
+  // native-HLS path — canPlayType('application/vnd.apple.mpegurl') can return
+  // "maybe" outside Safari too — or a fatal hls.js error) the retry order is:
+  //   1. this stream direct (cheap, works for sources with open CORS)
+  //   2. this stream through PROXY_BASE, if configured (fixes CORS-locked
+  //      sources like Pluto TV re-broadcasts, at the cost of a Worker request
+  //      per segment — so it's only used when direct actually failed)
+  //   3. the next stream in the list, direct, repeating the same two steps
+  // so a channel with a mix of working, CORS-blocked, and truly dead streams
+  // just plays instead of hanging on a silent spinner.
+  function loadStream(channel, index, viaProxy = false) {
+    if (index >= channel.streams.length) {
+      const note = document.getElementById('player-note');
+      note.textContent = 'None of this channel\'s streams loaded — it may be offline or geo-restricted right now.';
+      note.classList.add('show');
+      return;
+    }
+
+    const token = ++loadToken;
+    const video = document.getElementById('player');
+    const note = document.getElementById('player-note');
+    const rawUrl = channel.streams[index].url;
+    const url = viaProxy && PROXY_BASE ? proxied(rawUrl) : rawUrl;
+    note.classList.remove('show');
+    teardownPlayer();
+
+    document.querySelectorAll('.stream-btn').forEach(b => b.classList.remove('active'));
+    markStreamButton(index, 'active');
+
+    const advance = () => {
+      if (token !== loadToken) return; // a newer load already superseded this one
+      if (!viaProxy && PROXY_BASE) {
+        loadStream(channel, index, true); // retry this same stream through the proxy first
+        return;
+      }
+      removeStreamButton(index);
+      deadStreams.add(`${channel.id}:${index}`);
+      let next = index + 1;
+      while (next < channel.streams.length && deadStreams.has(`${channel.id}:${next}`)) next++;
+      loadStream(channel, next);
+    };
+
+    video.onerror = advance;
+
+    if (window.Hls && Hls.isSupported() && !video.canPlayType('application/vnd.apple.mpegurl')) {
+      hls = new Hls();
+      hls.loadSource(url);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.ERROR, (evt, data) => {
+        if (data.fatal && token === loadToken) advance();
+      });
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = url;
+    } else {
+      note.textContent = 'HLS playback is not supported in this browser.';
+      note.classList.add('show');
+    }
+  }
+
+  function openChannel(id) {
+    const channel = allChannels.find(c => c.id === id);
+    if (!channel) return;
+
+    document.getElementById('modal-title').textContent = channel.name;
+    document.getElementById('modal').classList.add('open');
+
+    const bar = document.getElementById('stream-bar');
+    const btns = document.getElementById('stream-btns');
+    // Streams already known dead from earlier in this session are left out of the
+    // picker entirely, rather than shown disabled — nothing to pick if it won't play.
+    const liveIndices = channel.streams
+      .map((s, i) => i)
+      .filter(i => !deadStreams.has(`${channel.id}:${i}`));
+    if (liveIndices.length > 1) {
+      bar.classList.add('show');
+      btns.innerHTML = liveIndices.map(i => {
+        const s = channel.streams[i];
+        return `<button class="stream-btn" data-i="${i}">
+           ${s.label}${s.quality ? `<span class="hd-tag">${s.quality}</span>` : ''}
+         </button>`;
+      }).join('');
+      btns.querySelectorAll('.stream-btn').forEach(btn => {
+        btn.addEventListener('click', () => loadStream(channel, +btn.dataset.i));
+      });
+    } else {
+      bar.classList.remove('show');
+      btns.innerHTML = '';
+    }
+
+    // Skip straight past any streams already known dead from earlier this session.
+    loadStream(channel, liveIndices.length ? liveIndices[0] : channel.streams.length);
+  }
+
+  function closeModal() {
+    document.getElementById('modal').classList.remove('open');
+    loadToken++; // invalidate any in-flight error handlers from the closed channel
+    teardownPlayer();
+  }
+
+  document.getElementById('modal-close').addEventListener('click', closeModal);
+  document.getElementById('modal').addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && document.getElementById('modal').classList.contains('open')) closeModal();
+  });
+
+  document.getElementById('sport-tabs').addEventListener('click', e => {
+    const btn = e.target.closest('.tab');
+    if (!btn) return;
+    document.querySelectorAll('#sport-tabs .tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+    activeCategory = btn.dataset.cat;
+    renderGrid();
+  });
+
+  document.getElementById('search').addEventListener('input', e => {
+    searchQuery = e.target.value.trim();
+    renderGrid();
+  });
+
+  document.getElementById('sort').addEventListener('change', e => {
+    sortMode = e.target.value;
+    renderGrid();
+  });
+
+  loadChannels();
+</script>
+</body>
+</html>
