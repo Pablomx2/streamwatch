@@ -6,7 +6,7 @@ Sports streaming frontend hosted on Netlify. Pulls match data from streamed.pk's
 
 ## Quick Start (read this first if you're new to this project)
 
-**What it is:** a static, no-build single-page app — two HTML files (`index.html` = match browser, `multiview.html` = 1–6 stream grid) with all CSS/JS inline, plus three Netlify Functions in `netlify/functions/` that proxy external APIs. There is **no framework, no bundler, no `package.json`** — you edit the HTML files directly.
+**What it is:** a static, no-build single-page app — two HTML files (`index.html` = match browser, `multiview.html` = 1–6 stream grid) with all CSS/JS inline, plus three Netlify Functions in `netlify/functions/` that proxy external APIs. There is **no framework, no bundler, no `package.json`** — you edit the HTML files directly. A third page, `iptv.html`, is an **A/B fork** on a different data source — see *iptv.html — IPTV-org Fork (A/B test)* below.
 
 **Where it lives:** production is **`pablogames.netlify.app`**. The working directory **is now a git repo** tracking [`Pablomx2/streamwatch`](https://github.com/Pablomx2/streamwatch) on `origin/main` — develop here, commit, and `git push origin main` as normal. A `… - BACKUP/` sibling folder on the Desktop is a manual snapshot of an earlier (pre-git) version.
 
@@ -279,6 +279,19 @@ Source switcher is in the top bar (not bottom) to avoid colliding with the playe
 
 ### Keyboard shortcuts (`keydown` listener)
 - `1`–`6` → fullscreen that cell · `M` → Mute/Unmute All · `F` → page fullscreen · `R` → Reload All. Ignored when a modifier key is held.
+
+---
+
+## iptv.html — IPTV-org Fork (A/B test)
+
+A second, independent home page at `iptv.html`, linked from `index.html`'s header (`IPTV Beta →`) with a matching link back (`← Match streams (streamed.pk)`), so the two can be A/B tested side by side. Same visual language (dark theme, card grid, tab bar, player modal) as `index.html`, but a completely different backend and content model:
+
+- **Data source:** [iptv-org/api](https://github.com/iptv-org/api) — fully static, CORS-open JSON (`Access-Control-Allow-Origin: *`) hosted at `iptv-org.github.io/api/*.json`. Fetched **directly from the browser on every host** (Netlify, the GitHub Pages mirror, or plain `localhost`) — no Netlify proxy function needed for this fork.
+- **Fundamentally different content:** iptv-org lists **24/7 linear TV channels** (ESPN, beIN Sports, Sky Sports, regional networks, etc.), not scheduled one-off matches like streamed.pk. There's no kickoff time, score, or "finished" state — every channel with a working stream is just always shown as `● LIVE`. No multiview, no ESPN score overlay, no pre-live badge — none of that data exists in this API.
+- **Category mapping:** iptv-org has exactly **one flat `sports` category** (see `categories.json`) — it doesn't split basketball from football from hockey. `classify()` in `iptv.html` re-buckets each channel into the **same category set `index.html` uses** (`basketball`, `football`, `american-football`, `hockey`, `baseball`, `motor-sports`, `fight`, `tennis`, `rugby`, `golf`, `cricket`, `billiards`, `afl`, `darts`, `other`) by keyword-matching the channel's name/alt_names/network (e.g. `NBA`/`basketball` → basketball, `NFL` → american-football, checked *before* the generic `football|soccer` catch-all so American/Australian-football channels don't get miscategorized as soccer). Generic sports networks with no sport-specific name (e.g. a plain "ESPN") fall into `other`. Tabs are built dynamically — only categories with at least one loaded channel get a tab.
+- **Playback is fundamentally different too:** streamed.pk/embed.st streams are framed as an iframe pointed at `embed.st`. iptv-org's `streams.json` gives **raw `.m3u8` (HLS) URLs** directly — there's no player page to embed. `iptv.html` plays them in a plain `<video>` element: native HLS on Safari, [hls.js](https://github.com/video-dev/hls.js) (loaded from jsdelivr CDN) everywhere else. This is the only external script dependency anywhere in the app — every other page is 100% inline, no-build.
+- **Data joined client-side from four endpoints:** `channels.json` (metadata) + `streams.json` (playable URLs, joined by `channel` id) + `blocklist.json` (DMCA/NSFW takedowns — excluded up front) + `logos.json` (first non-feed-specific logo per channel, used as the card thumbnail). Only channels with `categories: ["sports", ...]`, not `closed`, not blocklisted, and with ≥1 stream are shown. Combined payload is ~2.7MB gzipped, fetched once per page load (GitHub Pages sends `Cache-Control: max-age=600`).
+- **Known gap vs. the main version:** some public IPTV streams require a spoofed `Referer`/`User-Agent` to play, which a static frontend can't set (browsers block scripts from overriding the `Referer` header) — those streams surface the in-player error note ("try another stream below") rather than failing silently. There's also no multiview equivalent for this fork yet.
 
 ---
 
