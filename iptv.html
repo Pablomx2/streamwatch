@@ -546,9 +546,8 @@
   }
 
   // Loads streams[index] for `channel`. On playback failure (native <video> error
-  // event, which is the only signal available when the browser takes the
-  // native-HLS path — canPlayType('application/vnd.apple.mpegurl') can return
-  // "maybe" outside Safari too — or a fatal hls.js error) the retry order is:
+  // event — the only signal available on the rare native-HLS fallback path, see
+  // the hls.js-preference note below — or a fatal hls.js error) the retry order is:
   //   1. this stream direct (cheap, works for sources with open CORS)
   //   2. this stream through PROXY_BASE, if configured (fixes CORS-locked
   //      sources like Pluto TV re-broadcasts, at the cost of a Worker request
@@ -590,7 +589,14 @@
 
     video.onerror = advance;
 
-    if (window.Hls && Hls.isSupported() && !video.canPlayType('application/vnd.apple.mpegurl')) {
+    // Prefer hls.js whenever it's actually supported — it works reliably across
+    // platforms (including real Safari). Some Chromium builds report a truthy
+    // canPlayType('application/vnd.apple.mpegurl') without genuinely being able
+    // to play HLS, which previously routed those browsers into the native
+    // <video src> path where playback silently stalled forever (no error event,
+    // so it never advanced to the next stream). Native is now only used as a
+    // real fallback when hls.js itself isn't supported.
+    if (window.Hls && Hls.isSupported()) {
       hls = new Hls();
       hls.loadSource(url);
       hls.attachMedia(video);
