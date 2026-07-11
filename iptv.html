@@ -102,6 +102,9 @@
   .pill-sport { color: #aaa; }
   .card-time { font-size: 11px; color: #555; margin-left: auto; }
 
+  .card-schedule { font-size: 11px; color: #888; margin-top: 8px; padding-top: 8px; border-top: 1px solid #222; cursor: help; }
+  .card-schedule.sched-live { color: #ff6b6b; font-weight: 600; }
+
   .state { grid-column: 1 / -1; text-align: center; padding: 80px 20px; color: #444; }
   .state-icon { font-size: 40px; margin-bottom: 12px; }
   .state-msg { font-size: 15px; }
@@ -212,6 +215,27 @@
   // directly on every host (Netlify, GitHub Pages mirror, or plain localhost).
   const IPTV_BASE = 'https://iptv-org.github.io/api';
 
+  // ESPN schedule overlay — best-effort, category-level (NOT per-channel).
+  // Unlike index.html, iptv-org channels are 24/7 linear networks with no
+  // match id to pin a game to, so there's no way to know exactly which game
+  // a given channel is airing. Instead, for the sport categories ESPN covers,
+  // we show "what's live / next today in this sport" as a badge on every
+  // card in that category — an approximation, not a guarantee this channel
+  // is carrying that specific game. Same league mapping as index.html/
+  // scores.js so results stay consistent across the two forks.
+  const usesNetlifyProxy = /\.netlify\.app$/.test(window.location.hostname);
+  const SCORES_BASE = '/api/scores';
+  const SCORE_CATEGORIES = new Set(['basketball', 'american-football', 'hockey', 'baseball', 'football']);
+  const ESPN_LEAGUES = {
+    basketball:          ['basketball/nba', 'basketball/wnba'],
+    'american-football': ['football/nfl', 'football/college-football'],
+    hockey:              ['hockey/nhl'],
+    baseball:            ['baseball/mlb'],
+    football:            ['soccer/eng.1', 'soccer/esp.1', 'soccer/ita.1', 'soccer/ger.1',
+                          'soccer/fra.1', 'soccer/usa.1', 'soccer/uefa.champions', 'soccer/uefa.europa',
+                          'soccer/fifa.world', 'soccer/uefa.euro', 'soccer/conmebol.copa_america'],
+  };
+
   // Optional CORS-unlocking proxy (see cloudflare-worker.js in the streamwatch-iptv
   // repo) for streams whose manifest locks Access-Control-Allow-Origin to their own
   // domain (common with Pluto TV re-broadcasts) — a restriction the browser enforces
@@ -255,9 +279,18 @@
     if (/billiard|snooker|\bpool\b/.test(n)) return 'billiards';
     if (/\bufc\b|\bmma\b|boxing|wrestl|\bwwe\b|\bfight/.test(n)) return 'fight';
     if (/\bf1\b|formula ?1|motogp|nascar|motor ?sport|\bracing\b/.test(n)) return 'motor-sports';
-    if (/football|soccer|\bfc\b|premier league|la ?liga|bundesliga|serie ?a|ligue ?1|uefa|fifa|champions league/.test(n)) return 'football';
+    if (/football|soccer|\bfc\b|premier league|la ?liga|bundesliga|serie ?a|ligue ?1|uefa|fifa|champions league|\btudn\b|\btdn\b|tvc deportes/.test(n)) return 'football';
     return 'other';
   }
+
+  // Some well-known Spanish-language broadcasters carry heavy live sports
+  // (Liga MX, boxing, Olympics) but iptv-org tags them 'general' or leaves
+  // categories empty rather than 'sports' (verified against channels.json:
+  // Telemundo, TUDN, Univision, TDN Mexico, TVC Deportes all come back
+  // categories:['general'] or []). The strict categories.includes('sports')
+  // filter below misses them entirely, so this name-based allowlist widens
+  // inclusion for these specific networks regardless of their iptv-org tag.
+  const GENERAL_SPORTS_NETWORKS = /\btudn\b|\btelemundo\b|\btdn\b|\bunivision\b|tvc deportes/i;
 
   const flagEmoji = code => {
     if (!code || code.length !== 2) return '🏳️';
@@ -274,6 +307,8 @@
   let hls = null;          // current Hls.js instance, torn down on modal close/switch
   let loadToken = 0;       // bumped on every loadStream() call; stale error events are ignored
   const deadStreams = new Set(); // `${channelId}:${index}` that failed this session
+  // category → { kind: 'live'|'next', event, count } | null, from refreshSchedule().
+  let scheduleByCategory = {};
 
   // ── Load ─────────────────────────────────────────────────────
   async function loadChannels() {
@@ -301,7 +336,17 @@
       }
 
       allChannels = channels
-        .filter(c => !c.closed && !blocked.has(c.id) && (c.categories || []).includes('sports'))
+        .filter(c => {
+          if (c.closed || blocked.has(c.id)) return false;
+          if ((c.categories || []).includes('sports')) return true;
+          // Skip feeds of these networks that iptv-org itself tags as
+          // non-sports content (e.g. "Telemundo Telenovelas Clasicas" is
+          // ['series']) — the allowlist is for live sports carriage, not
+          // every channel sharing the brand name.
+          if ((c.categories || []).some(cat => cat === 'series' || cat === 'entertainment')) return false;
+          const n = [c.name, ...(c.alt_names || []), c.network || ''].join(' ');
+          return GENERAL_SPORTS_NETWORKS.test(n);
+        })
         .map(c => ({
           id: c.id,
           name: c.name,
@@ -318,6 +363,7 @@
 
       buildTabs();
       renderGrid();
+      refreshSchedule();
     } catch (err) {
       grid.innerHTML = `
         <div class="state">
@@ -338,6 +384,75 @@
       tabs.push(`<button class="tab" data-cat="${cat}">${emoji(cat)} ${label}</button>`);
     }
     bar.innerHTML = tabs.join('');
+  }
+
+  // ── ESPN schedule (category-level, see note above) ─────────────
+  // Flattens one raw ESPN scoreboard payload — same shape as normalizeEspn()
+  // in index.html, duplicated here since the two pages share no JS module.
+  function normalizeEspn(payload) {
+    const events = Array.isArray(payload?.events) ? payload.events : [];
+    const team = t => ({ name: t?.displayName || '', short: t?.shortDisplayName || '', abbr: t?.abbreviation || '' });
+    const out = [];
+    for (const ev of events) {
+      const competitors = ev?.competitions?.[0]?.competitors || [];
+      const home = competitors.find(c => c.homeAway === 'home');
+      const away = competitors.find(c => c.homeAway === 'away');
+      if (!home || !away) continue;
+      const type = ev?.status?.type || {};
+      out.push({
+        date: Date.parse(ev.date) || 0,
+        home: team(home.team),
+        away: team(away.team),
+        state: type.state || 'pre',
+        detail: type.shortDetail || '',
+      });
+    }
+    return out;
+  }
+
+  async function fetchScoreEvents(category) {
+    if (usesNetlifyProxy) {
+      try {
+        const res = await fetch(`${SCORES_BASE}/${category}`);
+        if (!res.ok) return [];
+        const data = await res.json();
+        return Array.isArray(data?.events) ? data.events : [];
+      } catch { return []; }
+    }
+    const leagues = ESPN_LEAGUES[category];
+    if (!leagues) return [];
+    const payloads = await Promise.all(leagues.map(async path => {
+      try {
+        const res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/${path}/scoreboard`);
+        if (!res.ok) return null;
+        return await res.json();
+      } catch { return null; }
+    }));
+    return payloads.flatMap(p => p ? normalizeEspn(p) : []);
+  }
+
+  // Picks one representative event per category to badge every card in that
+  // category with: the soonest currently-live game, else the soonest game
+  // still to come today. Not tied to any specific channel.
+  function pickRepresentative(events) {
+    const now = Date.now();
+    const live = events.filter(e => e.state === 'in').sort((a, b) => a.date - b.date);
+    if (live.length) return { kind: 'live', event: live[0], count: live.length };
+    const upcoming = events.filter(e => e.state === 'pre' && e.date > now).sort((a, b) => a.date - b.date);
+    if (upcoming.length) return { kind: 'next', event: upcoming[0], count: upcoming.length };
+    return null;
+  }
+
+  async function refreshSchedule() {
+    const cats = [...new Set(allChannels.map(c => c.category))].filter(c => SCORE_CATEGORIES.has(c));
+    if (!cats.length) { scheduleByCategory = {}; return; }
+    try {
+      const lists = await Promise.all(cats.map(c => fetchScoreEvents(c)));
+      const next = {};
+      cats.forEach((c, i) => { next[c] = pickRepresentative(lists[i]); });
+      scheduleByCategory = next;
+      renderGrid();
+    } catch { /* keep previous schedule on a transient failure */ }
   }
 
   // ── Filter / sort ────────────────────────────────────────────
@@ -378,6 +493,15 @@
         ? `<img src="${c.logo}" alt="" loading="lazy" onerror="this.replaceWith(document.createTextNode('${emoji(c.category)}'))">`
         : emoji(c.category);
 
+      const sched = SCORE_CATEGORIES.has(c.category) ? scheduleByCategory[c.category] : null;
+      const scheduleHtml = sched ? (() => {
+        const { away, home } = sched.event;
+        const teams = `${away.abbr || away.short} @ ${home.abbr || home.short}`;
+        return sched.kind === 'live'
+          ? `<div class="card-schedule sched-live" title="Today's ${c.category.replace(/-/g, ' ')} schedule — approximate, may not be this exact channel">🔴 LIVE now: ${teams}${sched.count > 1 ? ` (+${sched.count - 1} more)` : ''}</div>`
+          : `<div class="card-schedule" title="Today's ${c.category.replace(/-/g, ' ')} schedule — approximate, may not be this exact channel">Next: ${teams} · ${new Date(sched.event.date).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</div>`;
+      })() : '';
+
       return `
         <div class="card" data-id="${c.id}">
           <div class="card-thumb">
@@ -391,6 +515,7 @@
               ${c.country ? `<span class="pill">${flagEmoji(c.country)} ${c.country}</span>` : ''}
               <span class="card-time">${c.streams.length} stream${c.streams.length === 1 ? '' : 's'}</span>
             </div>
+            ${scheduleHtml}
           </div>
         </div>`;
     }).join('');
@@ -546,6 +671,7 @@
   });
 
   loadChannels();
+  setInterval(refreshSchedule, 60_000); // keep live/next badges current
 </script>
 </body>
 </html>
