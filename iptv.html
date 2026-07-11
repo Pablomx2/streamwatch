@@ -236,13 +236,21 @@
                           'soccer/fifa.world', 'soccer/uefa.euro', 'soccer/conmebol.copa_america'],
   };
 
-  // Optional CORS-unlocking proxy (see cloudflare-worker.js in the streamwatch-iptv
-  // repo) for streams whose manifest locks Access-Control-Allow-Origin to their own
-  // domain (common with Pluto TV re-broadcasts) — a restriction the browser enforces
-  // even for native <video> HLS playback, so no client-side header trick can get
-  // around it. Leave blank to skip proxying entirely (those streams just get
-  // auto-skipped by loadStream's dead-stream fallback instead of playing).
-  const PROXY_BASE = '';
+  // CORS-unlocking proxy (see cloudflare-worker.js in the streamwatch-iptv repo,
+  // deployed at this workers.dev URL) for streams whose manifest locks
+  // Access-Control-Allow-Origin to their own domain (common with Pluto TV
+  // re-broadcasts) — a restriction the browser enforces even for native <video>
+  // HLS playback, so no client-side header trick can get around it. Also
+  // rescues plain http:// streams on our HTTPS deploys (Netlify/GitHub Pages),
+  // which the browser otherwise blocks outright as mixed content — the Worker
+  // fetches server-side, so it isn't subject to either restriction.
+  // ⚠️ Does NOT rescue http:// streams whose host is a bare IP address (e.g.
+  // http://1.2.3.4:8080/...): Cloudflare Workers refuse to fetch() a raw IP
+  // directly (error 1003 "Direct IP Access Not Allowed"), so those still fail
+  // through the proxy and fall through to the next stream/source as before.
+  // Leave blank to skip proxying entirely (those streams just get auto-skipped
+  // by loadStream's dead-stream fallback instead of playing).
+  const PROXY_BASE = 'https://rough-field-e808.pablomx2.workers.dev';
 
   // Same per-sport bucket set + emoji as index.html's SPORT_EMOJI, so the tab bar
   // and pills read identically across both versions of the app.
